@@ -1,0 +1,1181 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>繁體中文電子書閱讀器 (Traditional Chinese eBook Reader)</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            gold: {
+              400: '#FBBF24',
+              500: '#F59E0B',
+              600: '#D97706',
+              700: '#B45309',
+            }
+          }
+        }
+      }
+    };
+  </script>
+
+  <!-- React & ReactDOM -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  
+  <!-- Babel Compiler for JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- JSZip & EPUB.js for eBook rendering -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
+
+  <style>
+    /* Custom Scrollbar Styling */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.05);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(217, 119, 6, 0.3);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(217, 119, 6, 0.6);
+    }
+    .style-kai {
+      font-family: "Kaiti SC", "楷體", "STKaiti", serif;
+    }
+  </style>
+</head>
+<body class="bg-[#FAF8F5] text-[#2C2825] antialiased">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+    // IndexedDB Constants
+    const DB_NAME = 'TraditionalChineseEbookReaderDB';
+    const DB_VERSION = 1;
+    const STORE_BOOKS = 'books';
+
+    // Initialize IndexedDB
+    const initDB = () => {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(STORE_BOOKS)) {
+            db.createObjectStore(STORE_BOOKS, { keyPath: 'id' });
+          }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    };
+
+    const saveBookToDB = async (bookData) => {
+      const db = await initDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_BOOKS, 'readwrite');
+        const store = tx.objectStore(STORE_BOOKS);
+        const req = store.put(bookData);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+    };
+
+    const getAllBooksFromDB = async () => {
+      const db = await initDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_BOOKS, 'readonly');
+        const store = tx.objectStore(STORE_BOOKS);
+        const req = store.getAll();
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    };
+
+    const deleteBookFromDB = async (id) => {
+      const db = await initDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_BOOKS, 'readwrite');
+        const store = tx.objectStore(STORE_BOOKS);
+        const req = store.delete(id);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+    };
+
+    // Inline SVG Icon Component to ensure robust icon display without script loading delays
+    function Icon({ name, className = "w-5 h-5", ...props }) {
+      const iconPaths = {
+        'book-open': <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2zm22 0h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />,
+        'upload': <g><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></g>,
+        'settings': <g><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></g>,
+        'list': <g><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" /></g>,
+        'bookmark': <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" />,
+        'trash-2': <g><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></g>,
+        'sun': <g><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></g>,
+        'moon': <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />,
+        'chevron-left': <polyline points="15 18 9 12 15 6" />,
+        'chevron-right': <polyline points="9 18 15 12 9 6" />,
+        'search': <g><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></g>,
+        'grid': <g><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></g>,
+        'x': <g><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></g>,
+        'check': <polyline points="20 6 9 17 4 12" />,
+        'arrow-left': <g><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></g>,
+        'sliders': <g><line x1="4" y1="21" x2="4" y2="14" /><line x1="4" y1="10" x2="4" y2="3" /><line x1="12" y1="21" x2="12" y2="12" /><line x1="12" y1="8" x2="12" y2="3" /><line x1="20" y1="21" x2="20" y2="16" /><line x1="20" y1="12" x2="20" y2="3" /><line x1="1" y1="14" x2="7" y2="14" /><line x1="9" y1="8" x2="15" y2="8" /><line x1="17" y1="16" x2="23" y2="16" /></g>,
+        'refresh-cw': <g><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></g>,
+        'file-text': <g><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></g>
+      };
+
+      return (
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={className}
+          {...props}
+        >
+          {iconPaths[name] || null}
+        </svg>
+      );
+    }
+
+    function App() {
+      // Navigation & Library State
+      const [currentView, setCurrentView] = useState('library'); // 'library' | 'reader'
+      const [books, setBooks] = useState([]);
+      const [activeBook, setActiveBook] = useState(null);
+      const [searchQuery, setSearchQuery] = useState('');
+      const [libraryViewMode, setLibraryViewMode] = useState('grid');
+      const [loading, setLoading] = useState(true);
+
+      // Delete & Batch Selection States
+      const [selectedBookIds, setSelectedBookIds] = useState([]);
+      const [isSelectMode, setIsSelectMode] = useState(false);
+      const [bookToDelete, setBookToDelete] = useState(null); // Modal state for single delete confirmation
+
+      // Drawer States
+      const [showSettingsDrawer, setShowSettingsDrawer] = useState(false);
+      const [showTocDrawer, setShowTocDrawer] = useState(false);
+      const [showBookmarksDrawer, setShowBookmarksDrawer] = useState(false);
+      
+      // Progress & Bookmarks State
+      const [activeProgress, setActiveProgress] = useState({ position: 0 });
+      const [bookmarks, setBookmarks] = useState([]);
+      const [currentChapterIndex, setCurrentChapterIndex] = useState(0);
+
+      // Canvas / Reader Refs
+      const readerContainerRef = useRef(null);
+      const epubRenditionRef = useRef(null);
+
+      // Reader Settings State - DEFAULT TO LIGHT THEME
+      const [settings, setSettings] = useState({
+        theme: 'light', 
+        bgPreset: 'light-gold', // 'light-gold' (暖金白), 'parchment', 'dark-gold', 'pure-night', 'emerald', 'custom'
+        customBgColor: '#FAF8F5',
+        customTextColor: '#2C2825',
+        fontSize: 19,
+        lineHeight: 1.85,
+        fontFamily: 'serif', // 'sans', 'serif' (明體), 'kai' (楷體)
+        writingMode: 'horizontal', // 'horizontal' | 'vertical'
+        margin: 18
+      });
+
+      // Background Theme Presets Definition
+      const themePresets = [
+        { id: 'light-gold', name: '暖金白', bg: '#FAF8F5', text: '#2C2825', border: '#EADFC9' },
+        { id: 'parchment', name: '羊皮紙', bg: '#F4EAD5', text: '#3E3426', border: '#D8C7A3' },
+        { id: 'dark-gold', name: '曜石金', bg: '#121214', text: '#E5E0D8', border: '#2A2723' },
+        { id: 'pure-night', name: '極夜黑', bg: '#000000', text: '#D1C7BD', border: '#222222' },
+        { id: 'emerald', name: '竹青綠', bg: '#0D1E18', text: '#C8E6C9', border: '#1B3B30' },
+      ];
+
+      // Sync dark mode class to HTML element
+      useEffect(() => {
+        if (settings.theme === 'dark') {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+      }, [settings.theme]);
+
+      // Helper to get active background & text colors based on settings
+      const getActiveThemeColors = useCallback(() => {
+        if (settings.bgPreset === 'custom') {
+          return {
+            bg: settings.customBgColor,
+            text: settings.customTextColor,
+            border: 'rgba(217, 119, 6, 0.3)'
+          };
+        }
+        const preset = themePresets.find(p => p.id === settings.bgPreset) || themePresets[2];
+        return preset;
+      }, [settings.bgPreset, settings.customBgColor, settings.customTextColor]);
+
+      // Fetch saved books from IndexedDB on startup
+      useEffect(() => {
+        const fetchBooks = async () => {
+          try {
+            let savedBooks = await getAllBooksFromDB();
+            
+            // Seed default classical sample book if bookshelf is empty
+            if (!savedBooks || savedBooks.length === 0) {
+              const sampleBook = {
+                id: 'sample_sanguo_classic',
+                title: '《三國演義》 第一回 宴桃園豪傑三結義 斬黃巾英雄首立功',
+                format: 'TXT',
+                size: 15420,
+                content: `《三國演義》\n羅貫中 著\n\n第一回 宴桃園豪傑三結義 斬黃巾英雄首立功\n\n滾滾長江東逝水，浪花淘盡英雄。是非成敗轉頭空。青山依舊在，幾度夕陽紅。\n白髮漁樵江渚上，慣看秋月春風。一壺濁酒喜相逢。古今多少事，都付笑談中。\n\n話說天下大勢，分久必合，合久必分。週末七國分爭，併入於秦。秦滅之後，楚、漢分爭，又併入於漢。漢朝自高祖斬白蛇而起義，一統天下，後來光武中興，傳至獻帝，遂分為三國。推其致亂之由，殆始於桓、靈二帝。桓帝禁錮善類，崇信宦官。及桓帝崩，靈帝即位，大將軍竇武、太傅陳蕃共相輔佐。時有宦官曹節等弄權，竇武、陳蕃謀誅之，機事不密，反為所害，中涓自此愈橫。\n\n建寧二年四月葵桃，帝御溫德殿。方升座，殿角狂風驟起。見一條大青蛇，從梁上飛將下來，蟠於椅上。帝驚倒，左右急救入宮，百官俱奔避。須臾，蛇不見了。忽然大雨，雹下至半夜，數百家房屋被毀。建寧四年二月，洛陽地震；又海水溢鳥，沿海居民，盡被卷入海中。光和元年，雌雞化雄。六月朔，黑氣十餘丈，飛入溫德殿中。秋七月，有彩雲見於玉堂；五原山岸，盡皆崩裂。種種不祥，非止一端。\n\n帝下詔問群臣以災異之由，議郎蔡邕上疏，以為蘂墮雞化，乃婦寺干政之所致，言詞甚切。帝覽疏嘆息，起衣更衣。曹節在後窺視，知其指實，遂以他事榜陷邕，放歸田里。後張讓、趙忠、封諝、段珪、曹節、侯覽、蹇碩、程曠、夏惲、郭勝十人朋比為奸，號為「十常侍」。帝尊信張讓，呼為「阿父」。朝政日非，以致天下人心思亂，盜賊蜂起。\n\n涿縣有一人，姓劉名備，字玄德。生得身長七尺五寸，兩耳垂肩，雙手過膝，目能自顧其耳，面如冠玉，唇若塗脂。性寬和，寡言語，喜怒不形於色，素有大志，專好結交天下豪傑。玄德幼孤，事母至孝。時巨鹿郡有兄弟三人，一名張角，一名張寶，一名張梁。角本是個不第秀王，因入山採藥，遇一老者，碧眼童顏，手執藜杖，喚角至一洞中，授書三卷，曰：「此《太平要術》也。汝得之，當代天宣化，普救世人；若萌異心，必獲惡報。」角拜受此書，旦夕習誦，能呼風喚雨，號為「太平道人」。\n\n角等起兵，號為「黃巾賊」。靈帝敕各處備禦，討賊立功。劉備見榜帖，慨然長嘆。隨後一人厲聲曰：「大丈夫不與國家出力，何故長嘆？」玄德回視其人，身長八尺，豹頭環眼，燕頷虎鬚，聲如巨雷，勢如奔馬。玄德見他形貌異常，問其姓名。其人曰：「某姓張名飛，字翼德。世居涿郡，頗有莊田，賣酒屠豬，專好結交天下豪傑。適纔見公看榜而嘆，故此相問。」玄德曰：「我本漢室宗親，姓劉名備。今聞黃巾倡亂，有志欲破賊安民，恨力不能，故此長嘆。」飛曰：「吾頗有資財，當招募鄉勇，與公同舉大事，何如？」玄德大喜，遂與同入村店中飲酒。`,
+                chapters: [
+                  { title: '卷首 臨江仙', startIndex: 0 },
+                  { title: '天下大勢 分久必合', startIndex: 121 },
+                  { title: '桃園結義 豪傑初逢', startIndex: 651 }
+                ],
+                addedAt: Date.now(),
+                lastRead: Date.now(),
+                progressPercent: 25
+              };
+              await saveBookToDB(sampleBook);
+              savedBooks = [sampleBook];
+            }
+
+            setBooks(savedBooks.sort((a, b) => b.lastRead - a.lastRead));
+          } catch (err) {
+            console.error('Error reading books from DB', err);
+          } finally {
+            setLoading(false);
+          }
+        };
+        fetchBooks();
+      }, []);
+
+      // Handle local File Upload (.txt or .epub)
+      const handleFileUpload = async (e) => {
+        const files = e.target.files || e.dataTransfer.files;
+        if (!files || files.length === 0) return;
+
+        for (let file of files) {
+          const isEpub = file.name.endsWith('.epub');
+          const isTxt = file.name.endsWith('.txt');
+
+          if (!isEpub && !isTxt) {
+            alert('請上傳 .txt 或 .epub 格式之電子書檔');
+            continue;
+          }
+
+          const bookId = `book_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+
+          if (isTxt) {
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+              const content = event.target.result;
+              
+              const chapterMatches = [...content.matchAll(/(第[零一二三四五六七八九十百千萬0-9]+[章回節].*)/g)];
+              const chapters = chapterMatches.map((m) => ({
+                title: m[1].trim(),
+                startIndex: m.index
+              }));
+
+              const newBook = {
+                id: bookId,
+                title: file.name.replace('.txt', ''),
+                format: 'TXT',
+                size: file.size,
+                content,
+                chapters,
+                addedAt: Date.now(),
+                lastRead: Date.now(),
+                progressPercent: 0,
+                scrollTop: 0
+              };
+
+              await saveBookToDB(newBook);
+              setBooks(prev => [newBook, ...prev]);
+            };
+            reader.readAsText(file, 'UTF-8');
+          } else if (isEpub) {
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+              const newBook = {
+                id: bookId,
+                title: file.name.replace('.epub', ''),
+                format: 'EPUB',
+                size: file.size,
+                arrayBuffer: event.target.result,
+                addedAt: Date.now(),
+                lastRead: Date.now(),
+                progressPercent: 0,
+                cfi: null
+              };
+
+              await saveBookToDB(newBook);
+              setBooks(prev => [newBook, ...prev]);
+            };
+            reader.readAsArrayBuffer(file);
+          }
+        }
+      };
+
+      // Open & Render Book in Reader
+      const openBook = async (book) => {
+        const updatedBook = { ...book, lastRead: Date.now() };
+        setActiveBook(updatedBook);
+        setCurrentView('reader');
+        await saveBookToDB(updatedBook);
+
+        setBooks(prev => prev.map(b => b.id === book.id ? updatedBook : b));
+      };
+
+      // Restore TXT scroll position when reader view mounts
+      useEffect(() => {
+        if (currentView === 'reader' && activeBook?.format === 'TXT') {
+          const timer = setTimeout(() => {
+            if (readerContainerRef.current) {
+              if (activeBook.scrollTop) {
+                readerContainerRef.current.scrollTop = activeBook.scrollTop;
+              } else {
+                readerContainerRef.current.scrollTop = 0;
+              }
+              updateTxtProgress();
+            }
+          }, 50);
+          return () => clearTimeout(timer);
+        }
+      }, [currentView, activeBook?.id]);
+
+      // EPUB Renderer Effect
+      useEffect(() => {
+        if (currentView === 'reader' && activeBook && activeBook.format === 'EPUB' && window.ePub) {
+          if (readerContainerRef.current) {
+            readerContainerRef.current.innerHTML = '';
+
+            const book = window.ePub(activeBook.arrayBuffer);
+            const rendition = book.renderTo(readerContainerRef.current, {
+              width: '100%',
+              height: '100%',
+              spread: 'always'
+            });
+
+            epubRenditionRef.current = rendition;
+
+            if (activeBook.cfi) {
+              rendition.display(activeBook.cfi);
+            } else {
+              rendition.display();
+            }
+
+            const applyEpubTheme = () => {
+              const themeColors = getActiveThemeColors();
+              let fontFamilyCss = 'serif';
+              if (settings.fontFamily === 'sans') fontFamilyCss = 'sans-serif';
+              if (settings.fontFamily === 'kai') fontFamilyCss = '"Kaiti SC", "楷體", "STKaiti", serif';
+
+              rendition.themes.default({
+                body: {
+                  'background-color': `${themeColors.bg} !important`,
+                  'color': `${themeColors.text} !important`,
+                  'font-size': `${settings.fontSize}px !important`,
+                  'line-height': `${settings.lineHeight} !important`,
+                  'font-family': `${fontFamilyCss} !important`,
+                  'padding': `0 ${settings.margin}% !important`
+                }
+              });
+            };
+
+            applyEpubTheme();
+
+            rendition.on('relocated', (location) => {
+              const cfi = location.start.cfi;
+              const percentage = Math.round(location.start.percentage * 100);
+              
+              setActiveProgress({ position: percentage, cfi });
+
+              const updated = { ...activeBook, cfi, progressPercent: percentage, lastRead: Date.now() };
+              saveBookToDB(updated);
+            });
+
+            book.loaded.navigation.then((nav) => {
+              if (nav && nav.toc) {
+                const tocItems = nav.toc.map(item => ({ title: item.label, href: item.href }));
+                setActiveBook(prev => ({ ...prev, chapters: tocItems }));
+              }
+            });
+          }
+        }
+      }, [currentView, activeBook?.id, settings, getActiveThemeColors]);
+
+      // Handle TXT Scroll Progress & Auto-Save
+      const updateTxtProgress = () => {
+        if (readerContainerRef.current && activeBook?.format === 'TXT') {
+          const { scrollTop, scrollHeight, clientHeight } = readerContainerRef.current;
+          const percentage = Math.round((scrollTop / (scrollHeight - clientHeight)) * 100) || 0;
+          
+          setActiveProgress({ position: percentage, scrollTop });
+
+          const updated = { ...activeBook, scrollTop, progressPercent: percentage, lastRead: Date.now() };
+          saveBookToDB(updated);
+        }
+      };
+      // Delete Single Book
+      const handleDeleteBook = async (e, id) => {
+        if (e) e.stopPropagation();
+        await deleteBookFromDB(id);
+        setBooks(prev => prev.filter(b => b.id !== id));
+        setSelectedBookIds(prev => prev.filter(bId => bId !== id));
+        if (activeBook?.id === id) {
+          setActiveBook(null);
+          setCurrentView('library');
+        }
+        setBookToDelete(null);
+      };
+
+      // Batch Delete Selected Books
+      const handleBatchDelete = async () => {
+        if (selectedBookIds.length === 0) return;
+        
+        for (let id of selectedBookIds) {
+          await deleteBookFromDB(id);
+        }
+        
+        setBooks(prev => prev.filter(b => !selectedBookIds.includes(b.id)));
+        if (activeBook && selectedBookIds.includes(activeBook.id)) {
+          setActiveBook(null);
+          setCurrentView('library');
+        }
+        setSelectedBookIds([]);
+        setIsSelectMode(false);
+      };
+
+      // Toggle item selection in batch mode
+      const toggleSelectBook = (e, id) => {
+        e.stopPropagation();
+        setSelectedBookIds(prev => 
+          prev.includes(id) ? prev.filter(bId => bId !== id) : [...prev, id]
+        );
+      };
+
+      // Bookmark Management
+      const handleAddBookmark = () => {
+        const newBm = {
+          id: Date.now(),
+          bookId: activeBook.id,
+          title: `書籤 - ${Math.round(activeProgress.position || 0)}%`,
+          position: activeProgress.position,
+          time: new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })
+        };
+        setBookmarks(prev => [newBm, ...prev]);
+      };
+
+      const filteredBooks = books.filter(b => 
+        b.title.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+
+      const formatFileSize = (bytes) => {
+        if (!bytes) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+      };
+
+      const getFontFamilyClass = () => {
+        switch (settings.fontFamily) {
+          case 'sans':
+            return 'font-sans';
+          case 'kai':
+            return 'font-serif style-kai';
+          case 'serif':
+          default:
+            return 'font-serif';
+        }
+      };
+
+      return (
+        <div className={`min-h-screen flex flex-col font-sans select-none transition-colors duration-300 ${
+          settings.theme === 'dark' ? 'dark bg-[#121214] text-[#E5E0D8]' : 'bg-[#FAF8F5] text-[#2C2825]'
+        }`}>
+          
+          {/* HEADER */}
+          <header className={`sticky top-0 z-30 flex items-center justify-between px-4 sm:px-8 py-3.5 border-b backdrop-blur-md transition-colors ${
+            settings.theme === 'dark' ? 'bg-[#18181B]/90 border-[#2A2620]' : 'bg-[#FFFDF9]/90 border-[#EADFC9]'
+          }`}>
+            {currentView === 'library' ? (
+              <div className="flex items-center space-x-3">
+                <div className="bg-gradient-to-tr from-amber-600 via-amber-500 to-yellow-400 text-black p-2.5 rounded-2xl shadow-lg shadow-amber-500/20">
+                  <Icon name="book-open" className="w-6 h-6 stroke-[2.5]" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold tracking-wide flex items-center gap-2">
+                    繁體中文電子書閱讀器
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-500 font-mono font-medium border border-amber-500/30">
+                      經典典藏版
+                    </span>
+                  </h1>
+                  <p className="text-xs text-amber-800/60 dark:text-amber-400/60 font-medium">專為華文讀者打造的高效閱讀與流暢體驗</p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center space-x-3 max-w-xs md:max-w-md truncate">
+                <button 
+                  onClick={() => setCurrentView('library')}
+                  className="p-2 hover:bg-amber-500/10 rounded-xl transition flex items-center text-sm font-medium text-amber-600 dark:text-amber-400"
+                >
+                  <Icon name="arrow-left" className="w-5 h-5 mr-1" />
+                  返回書庫
+                </button>
+                <span className="text-sm font-semibold truncate border-l pl-3 border-amber-500/20">
+                  {activeBook?.title}
+                </span>
+              </div>
+            )}
+
+            {/* Global Controls */}
+            <div className="flex items-center space-x-2">
+              {currentView === 'reader' && (
+                <div className="hidden sm:flex items-center space-x-1 border border-amber-500/20 bg-amber-500/5 rounded-xl px-1.5 py-1">
+                  <button
+                    onClick={() => setSettings(s => ({ ...s, fontSize: Math.max(12, s.fontSize - 1) }))}
+                    className="p-1.5 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded-lg text-xs font-bold transition flex items-center justify-center w-7 h-7"
+                    title="縮小字體 (A-)"
+                  >
+                    A-
+                  </button>
+                  <span className="text-xs font-mono font-bold text-amber-500 px-1">{settings.fontSize}</span>
+                  <button
+                    onClick={() => setSettings(s => ({ ...s, fontSize: Math.min(36, s.fontSize + 1) }))}
+                    className="p-1.5 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded-lg text-xs font-bold transition flex items-center justify-center w-7 h-7"
+                    title="放大字體 (A+)"
+                  >
+                    A+
+                  </button>
+                </div>
+              )}
+
+              <button
+                onClick={() => setSettings(s => {
+                  const nextPreset = s.bgPreset === 'light-gold' ? 'dark-gold' : 'light-gold';
+                  return { ...s, bgPreset: nextPreset, theme: nextPreset.includes('dark') ? 'dark' : 'light' };
+                })}
+                className="p-2.5 rounded-xl border border-amber-500/20 hover:bg-amber-500/10 text-amber-600 dark:text-amber-400 transition"
+                title="快速切換深淺模式"
+              >
+                {settings.bgPreset.includes('dark') || settings.bgPreset === 'pure-night' || settings.bgPreset === 'emerald' ? (
+                  <Icon name="sun" className="w-5 h-5" />
+                ) : (
+                  <Icon name="moon" className="w-5 h-5" />
+                )}
+              </button>
+
+              {currentView === 'reader' && (
+                <>
+                  <button
+                    onClick={() => setShowTocDrawer(true)}
+                    className="p-2.5 rounded-xl border border-amber-500/20 hover:bg-amber-500/10 text-amber-600 dark:text-amber-400 transition"
+                    title="章節目錄"
+                  >
+                    <Icon name="list" className="w-5 h-5" />
+                  </button>
+                  <button
+                    onClick={handleAddBookmark}
+                    className="p-2.5 rounded-xl border border-amber-500/20 hover:bg-amber-500/10 text-amber-600 dark:text-amber-400 transition"
+                    title="加入書籤"
+                  >
+                    <Icon name="bookmark" className="w-5 h-5" />
+                  </button>
+                  <button
+                    onClick={() => setShowSettingsDrawer(true)}
+                    className="p-2.5 rounded-xl border border-amber-500/20 hover:bg-amber-500/10 text-amber-600 dark:text-amber-400 transition"
+                    title="閱讀設定"
+                  >
+                    <Icon name="settings" className="w-5 h-5" />
+                  </button>
+                </>
+              )}
+            </div>
+          </header>
+
+          {/* VIEW 1: BOOKSHELF / LIBRARY */}
+          {currentView === 'library' && (
+            <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-8">
+              
+              <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 mb-8">
+                <div className="relative flex-1 max-w-md">
+                  <Icon name="search" className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-amber-700/40 dark:text-amber-400/40" />
+                  <input
+                    type="text"
+                    placeholder="搜尋書名或藏書..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2.5 rounded-2xl border border-amber-500/20 bg-amber-500/5 focus:outline-none focus:ring-2 focus:ring-amber-500/40 text-sm placeholder:text-amber-900/40 dark:placeholder:text-amber-200/40"
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  {isSelectMode ? (
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={handleBatchDelete}
+                        disabled={selectedBookIds.length === 0}
+                        className={`px-4 py-2.5 rounded-2xl font-bold text-sm shadow-md transition flex items-center ${
+                          selectedBookIds.length > 0 
+                            ? 'bg-red-600 hover:bg-red-700 text-white cursor-pointer' 
+                            : 'bg-red-500/30 text-white/50 cursor-not-allowed'
+                        }`}
+                      >
+                        <Icon name="trash-2" className="w-4 h-4 mr-1.5" />
+                        刪除選取書籍 ({selectedBookIds.length})
+                      </button>
+                      <button
+                        onClick={() => {
+                          setIsSelectMode(false);
+                          setSelectedBookIds([]);
+                        }}
+                        className="px-4 py-2.5 rounded-2xl border border-amber-500/30 font-semibold text-sm hover:bg-amber-500/10 transition"
+                      >
+                        取消
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => setIsSelectMode(true)}
+                        className="px-4 py-2.5 rounded-2xl border border-amber-500/30 text-amber-700 dark:text-amber-400 font-medium text-sm hover:bg-amber-500/10 transition flex items-center"
+                        title="批量管理刪除書籍"
+                      >
+                        <Icon name="trash-2" className="w-4 h-4 mr-1.5 text-red-500" />
+                        批量管理
+                      </button>
+
+                      <label className="cursor-pointer bg-gradient-to-r from-amber-600 to-yellow-500 text-black px-5 py-2.5 rounded-2xl font-bold text-sm shadow-lg shadow-amber-500/20 hover:brightness-110 active:scale-95 transition flex items-center">
+                        <Icon name="upload" className="w-4 h-4 mr-2" />
+                        匯入書籍 (.TXT / .EPUB)
+                        <input
+                          type="file"
+                          accept=".txt,.epub"
+                          multiple
+                          onChange={handleFileUpload}
+                          className="hidden"
+                        />
+                      </label>
+                    </>
+                  )}
+
+                  <div className="flex items-center border border-amber-500/20 rounded-2xl p-1 bg-amber-500/5">
+                    <button
+                      onClick={() => setLibraryViewMode('grid')}
+                      className={`p-1.5 rounded-xl transition ${libraryViewMode === 'grid' ? 'bg-amber-500 text-black font-bold' : 'text-amber-600 dark:text-amber-400'}`}
+                    >
+                      <Icon name="grid" className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setLibraryViewMode('list')}
+                      className={`p-1.5 rounded-xl transition ${libraryViewMode === 'list' ? 'bg-amber-500 text-black font-bold' : 'text-amber-600 dark:text-amber-400'}`}
+                    >
+                      <Icon name="list" className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {loading ? (
+                <div className="flex flex-col items-center justify-center py-24 text-amber-500">
+                  <Icon name="refresh-cw" className="w-8 h-8 animate-spin mb-3" />
+                  <span className="text-sm font-medium">正在讀取個人藏書庫...</span>
+                </div>
+              ) : filteredBooks.length === 0 ? (
+                <div className="text-center py-20 border-2 border-dashed border-amber-500/20 rounded-3xl p-8">
+                  <Icon name="file-text" className="w-12 h-12 text-amber-500/40 mx-auto mb-4" />
+                  <h3 className="text-lg font-bold mb-1">尚無書籍</h3>
+                  <p className="text-sm text-amber-800/60 dark:text-amber-400/60 max-w-sm mx-auto mb-6">
+                    點擊右上角「匯入書籍」上傳您的 Traditional Chinese .txt 或 .epub 電子書。
+                  </p>
+                </div>
+              ) : (
+                <div className={libraryViewMode === 'grid' ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6' : 'space-y-3'}>
+                  {filteredBooks.map((book) => {
+                    const isSelected = selectedBookIds.includes(book.id);
+                    return (
+                      <div
+                        key={book.id}
+                        onClick={(e) => {
+                          if (isSelectMode) {
+                            toggleSelectBook(e, book.id);
+                          } else {
+                            openBook(book);
+                          }
+                        }}
+                        className={`group cursor-pointer transition-all duration-300 relative ${
+                          libraryViewMode === 'grid' 
+                            ? 'bg-amber-500/5 hover:bg-amber-500/10 border border-amber-500/20 hover:border-amber-500/50 rounded-2xl p-4 flex flex-col justify-between hover:shadow-xl hover:-translate-y-1'
+                            : 'bg-amber-500/5 hover:bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 flex items-center justify-between'
+                        } ${isSelected ? 'ring-2 ring-amber-500 bg-amber-500/15 border-amber-500' : ''}`}
+                      >
+                        {/* Batch Selection Overlay Checkbox */}
+                        {isSelectMode && (
+                          <div 
+                            onClick={(e) => toggleSelectBook(e, book.id)}
+                            className={`absolute top-3 right-3 z-20 w-6 h-6 rounded-lg flex items-center justify-center border transition-all ${
+                              isSelected ? 'bg-amber-500 border-amber-500 text-black' : 'border-amber-500/40 bg-white/50 dark:bg-black/50'
+                            }`}
+                          >
+                            {isSelected && <Icon name="check" className="w-4 h-4 stroke-[3]" />}
+                          </div>
+                        )}
+
+                        {libraryViewMode === 'grid' ? (
+                          <>
+                            <div>
+                              <div className="w-full aspect-[3/4] bg-gradient-to-br from-amber-700/20 to-amber-900/40 rounded-xl mb-3 flex flex-col items-center justify-center p-3 text-center border border-amber-500/20 group-hover:scale-105 transition-transform">
+                                <Icon name="book-open" className="w-8 h-8 text-amber-500 mb-2" />
+                                <span className="text-xs font-bold text-amber-500 uppercase tracking-widest">{book.format}</span>
+                              </div>
+                              <h3 className="font-bold text-sm line-clamp-2 mb-1 group-hover:text-amber-500 transition-colors">
+                                {book.title}
+                              </h3>
+                              <p className="text-[11px] text-amber-800/60 dark:text-amber-400/60">
+                                大小: {formatFileSize(book.size)}
+                              </p>
+                            </div>
+
+                            <div className="mt-4 pt-3 border-t border-amber-500/10 flex items-center justify-between text-xs">
+                              <span className="text-[10px] bg-amber-500/20 text-amber-500 px-2 py-0.5 rounded-full font-mono">
+                                進度: {book.progressPercent || 0}%
+                              </span>
+                              {!isSelectMode && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setBookToDelete(book);
+                                  }}
+                                  className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition opacity-80 sm:opacity-0 sm:group-hover:opacity-100"
+                                  title="刪除此書籍"
+                                >
+                                  <Icon name="trash-2" className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="flex items-center space-x-4">
+                              <div className="p-3 bg-amber-500/20 text-amber-500 rounded-xl font-bold text-xs">
+                                {book.format}
+                              </div>
+                              <div>
+                                <h3 className="font-bold text-sm group-hover:text-amber-500 transition-colors">
+                                  {book.title}
+                                </h3>
+                                <div className="flex items-center space-x-3 text-xs text-amber-800/60 dark:text-amber-400/60 mt-0.5">
+                                  <span>大小: {formatFileSize(book.size)}</span>
+                                  <span>•</span>
+                                  <span>已讀: {book.progressPercent || 0}%</span>
+                                </div>
+                              </div>
+                            </div>
+                            {!isSelectMode && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setBookToDelete(book);
+                                }}
+                                className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition"
+                                title="刪除此書籍"
+                              >
+                                <Icon name="trash-2" className="w-4 h-4" />
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </main>
+          )}
+
+          {/* SINGLE BOOK DELETE CONFIRMATION MODAL */}
+          {bookToDelete && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+              <div className="bg-white dark:bg-zinc-900 border border-amber-500/30 rounded-3xl p-6 max-w-sm w-full shadow-2xl space-y-4">
+                <div className="flex items-center space-x-3 text-red-500">
+                  <div className="p-2 bg-red-500/10 rounded-xl">
+                    <Icon name="trash-2" className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-lg font-bold">確認刪除書籍？</h3>
+                </div>
+                <p className="text-xs text-amber-800/70 dark:text-amber-300/70 leading-relaxed">
+                  將從您的本機裝置庫中移除 <span className="font-bold text-amber-600 dark:text-amber-400">「{bookToDelete.title}」</span>。此動作無法復原。
+                </p>
+                <div className="flex justify-end space-x-3 pt-2">
+                  <button
+                    onClick={() => setBookToDelete(null)}
+                    className="px-4 py-2 rounded-xl border border-amber-500/20 text-xs font-semibold hover:bg-amber-500/10 transition"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={() => handleDeleteBook(null, bookToDelete.id)}
+                    className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-md transition"
+                  >
+                    確定刪除
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* VIEW 2: DISTRACTION-FREE READER */}
+          {currentView === 'reader' && activeBook && (
+            <div 
+              className="flex-1 flex flex-col relative overflow-hidden transition-colors duration-300"
+              style={{
+                backgroundColor: getActiveThemeColors().bg,
+                color: getActiveThemeColors().text
+              }}
+            >
+              <div className="flex-1 flex overflow-hidden relative">
+                
+                <button 
+                  onClick={navigatePrev}
+                  className="absolute left-0 top-0 bottom-0 w-20 opacity-0 hover:opacity-100 flex items-center justify-start pl-4 bg-gradient-to-r from-amber-500/10 to-transparent transition-opacity z-20 cursor-pointer"
+                >
+                  <Icon name="chevron-left" className="w-8 h-8 opacity-70 text-amber-500" />
+                </button>
+
+                <div className="flex-1 h-full w-full relative flex justify-center items-center overflow-hidden">
+                  {activeBook.format === 'TXT' && (
+                    <div
+                      ref={readerContainerRef}
+                      onScroll={updateTxtProgress}
+                      className={`w-full h-full overflow-y-auto px-6 py-8 ${getFontFamilyClass()}`}
+                      style={{
+                        fontSize: `${settings.fontSize}px`,
+                        lineHeight: settings.lineHeight,
+                        writingMode: settings.writingMode === 'vertical' ? 'vertical-rl' : 'horizontal-tb',
+                        paddingLeft: `${settings.margin}%`,
+                        paddingRight: `${settings.margin}%`,
+                        color: getActiveThemeColors().text
+                      }}
+                    >
+                      <div className="max-w-4xl mx-auto whitespace-pre-wrap break-words leading-relaxed tracking-wide min-h-full pb-20 select-text">
+                        {activeBook.content || '（本檔案內容空白或解碼失敗）'}
+                      </div>
+                    </div>
+                  )}
+
+                  {activeBook.format === 'EPUB' && (
+                    <div ref={readerContainerRef} className="w-full h-full" />
+                  )}
+                </div>
+
+                <button 
+                  onClick={navigateNext}
+                  className="absolute right-0 top-0 bottom-0 w-20 opacity-0 hover:opacity-100 flex items-center justify-end pr-4 bg-gradient-to-l from-amber-500/10 to-transparent transition-opacity z-20 cursor-pointer"
+                >
+                  <Icon name="chevron-right" className="w-8 h-8 opacity-70 text-amber-500" />
+                </button>
+              </div>
+
+              {/* Reader Footer Toolbar */}
+              <footer className="h-12 border-t border-amber-500/10 px-6 flex items-center justify-between text-xs font-mono opacity-80 backdrop-blur-xs">
+                <span>{activeBook.title}</span>
+                <div className="flex items-center space-x-4">
+                  <span>{activeProgress.position || 0}%</span>
+                </div>
+              </footer>
+            </div>
+          )}
+
+          {/* SETTINGS DRAWER */}
+          {showSettingsDrawer && (
+            <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-xs">
+              <div className="w-80 sm:w-96 bg-white dark:bg-zinc-900 h-full shadow-2xl p-6 flex flex-col justify-between overflow-y-auto border-l border-amber-500/20">
+                <div>
+                  <div className="flex justify-between items-center mb-6 border-b pb-4 border-amber-500/20">
+                    <h2 className="text-lg font-bold flex items-center text-amber-600 dark:text-amber-400">
+                      <Icon name="sliders" className="w-5 h-5 mr-2" />
+                      閱讀偏好設定
+                    </h2>
+                    <button onClick={() => setShowSettingsDrawer(false)} className="p-1.5 rounded-full hover:bg-amber-500/10">
+                      <Icon name="x" className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  {/* Background Theme Preset */}
+                  <div className="mb-6">
+                    <label className="text-xs font-bold uppercase tracking-wider text-amber-700/60 dark:text-amber-400/60 mb-3 block">
+                      閱讀背景色彩
+                    </label>
+                    <div className="grid grid-cols-3 gap-2.5 mb-3">
+                      {themePresets.map((preset) => (
+                        <button
+                          key={preset.id}
+                          onClick={() => setSettings(s => ({
+                            ...s,
+                            bgPreset: preset.id,
+                            theme: preset.id.includes('dark') || preset.id === 'pure-night' || preset.id === 'emerald' ? 'dark' : 'light'
+                          }))}
+                          className={`p-2.5 rounded-xl border flex flex-col items-center justify-center font-medium text-xs transition relative overflow-hidden ${
+                            settings.bgPreset === preset.id ? 'ring-2 ring-amber-500 border-amber-500 shadow-md' : 'border-amber-500/20'
+                          }`}
+                          style={{ backgroundColor: preset.bg, color: preset.text }}
+                        >
+                          <span className="font-bold">{preset.name}</span>
+                          {settings.bgPreset === preset.id && (
+                            <span className="absolute bottom-1 right-1">
+                              <Icon name="check" className="w-3 h-3 text-amber-500" />
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                      
+                      <button
+                        onClick={() => setSettings(s => ({ ...s, bgPreset: 'custom' }))}
+                        className={`p-2.5 rounded-xl border flex flex-col items-center justify-center font-bold text-xs transition ${
+                          settings.bgPreset === 'custom' ? 'ring-2 ring-amber-500 border-amber-500 bg-amber-500/20 text-amber-500' : 'border-amber-500/20 text-gray-400'
+                        }`}
+                      >
+                        自訂色彩
+                      </button>
+                    </div>
+
+                    {settings.bgPreset === 'custom' && (
+                      <div className="p-3 bg-amber-500/5 rounded-xl border border-amber-500/20 space-y-3 mt-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-amber-700/80 dark:text-amber-400/80 font-medium">背景顏色:</span>
+                          <input
+                            type="color"
+                            value={settings.customBgColor}
+                            onChange={(e) => setSettings(s => ({ ...s, customBgColor: e.target.value }))}
+                            className="w-9 h-7 rounded cursor-pointer bg-transparent border-0"
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-amber-700/80 dark:text-amber-400/80 font-medium">文字顏色:</span>
+                          <input
+                            type="color"
+                            value={settings.customTextColor}
+                            onChange={(e) => setSettings(s => ({ ...s, customTextColor: e.target.value }))}
+                            className="w-9 h-7 rounded cursor-pointer bg-transparent border-0"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Font Size Adjust */}
+                  <div className="mb-6">
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="text-xs font-bold uppercase tracking-wider text-amber-700/60 dark:text-amber-400/60">
+                        字體大小
+                      </label>
+                      <span className="text-xs font-mono font-bold text-amber-500">{settings.fontSize}px</span>
+                    </div>
+                    <div className="flex items-center space-x-3">
+                      <button
+                        onClick={() => setSettings(s => ({ ...s, fontSize: Math.max(12, s.fontSize - 1) }))}
+                        className="p-2 border border-amber-500/30 rounded-xl hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold text-xs transition"
+                      >
+                        小 (A-)
+                      </button>
+                      <input
+                        type="range"
+                        min="12"
+                        max="36"
+                        value={settings.fontSize}
+                        onChange={(e) => setSettings(s => ({ ...s, fontSize: Number(e.target.value) }))}
+                        className="flex-1 accent-amber-500"
+                      />
+                      <button
+                        onClick={() => setSettings(s => ({ ...s, fontSize: Math.min(36, s.fontSize + 1) }))}
+                        className="p-2 border border-amber-500/30 rounded-xl hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold text-xs transition"
+                      >
+                        大 (A+)
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Writing Direction */}
+                  <div className="mb-6">
+                    <label className="text-xs font-bold uppercase tracking-wider text-amber-700/60 dark:text-amber-400/60 mb-3 block">排版方向</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => setSettings(s => ({ ...s, writingMode: 'horizontal' }))}
+                        className={`px-4 py-2.5 rounded-xl border text-xs font-bold transition ${settings.writingMode === 'horizontal' ? 'bg-gradient-to-r from-amber-600 to-yellow-500 text-black border-transparent shadow-md' : 'border-amber-500/20'}`}
+                      >
+                        橫排 (水平)
+                      </button>
+                      <button
+                        onClick={() => setSettings(s => ({ ...s, writingMode: 'vertical' }))}
+                        className={`px-4 py-2.5 rounded-xl border text-xs font-bold transition ${settings.writingMode === 'vertical' ? 'bg-gradient-to-r from-amber-600 to-yellow-500 text-black border-transparent shadow-md' : 'border-amber-500/20'}`}
+                      >
+                        直排 (垂直)
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Font Style Selection */}
+                  <div className="mb-6">
+                    <label className="text-xs font-bold uppercase tracking-wider text-amber-700/60 dark:text-amber-400/60 mb-3 block">字體選型</label>
+                    <div className="space-y-2">
+                      {[
+                        { id: 'serif', label: '明體 (經典宋體 / Serif)' },
+                        { id: 'sans', label: '黑體 (現代無襯線 / Sans)' },
+                        { id: 'kai', label: '楷體 (傳統書法 / Kai)' }
+                      ].map((font) => (
+                        <button
+                          key={font.id}
+                          onClick={() => setSettings(s => ({ ...s, fontFamily: font.id }))}
+                          className={`w-full px-4 py-2.5 rounded-xl text-left border text-xs flex items-center justify-between transition ${settings.fontFamily === font.id ? 'border-amber-500 bg-amber-500/10 text-amber-500 font-bold' : 'border-amber-500/20'}`}
+                        >
+                          <span>{font.label}</span>
+                          {settings.fontFamily === font.id && <Icon name="check" className="w-4 h-4 text-amber-500" />}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Line Height Adjust */}
+                  <div className="mb-6">
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="text-xs font-bold uppercase tracking-wider text-amber-700/60 dark:text-amber-400/60">行距比例</label>
+                      <span className="text-xs font-mono font-bold text-amber-500">{settings.lineHeight}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="1.3"
+                      max="2.6"
+                      step="0.1"
+                      value={settings.lineHeight}
+                      onChange={(e) => setSettings(s => ({ ...s, lineHeight: Number(e.target.value) }))}
+                      className="w-full accent-amber-500"
+                    />
+                  </div>
+
+                </div>
+
+                <button
+                  onClick={() => setShowSettingsDrawer(false)}
+                  className="w-full py-3 bg-gradient-to-r from-amber-600 to-yellow-500 text-black rounded-xl font-bold text-sm shadow-md transition hover:brightness-110"
+                >
+                  完成設定
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* TABLE OF CONTENTS DRAWER */}
+          {showTocDrawer && (
+            <div className="fixed inset-0 z-50 flex justify-start bg-black/50 backdrop-blur-xs">
+              <div className="w-80 bg-white dark:bg-zinc-900 h-full shadow-2xl p-6 flex flex-col overflow-y-auto border-r border-amber-500/20">
+                <div className="flex justify-between items-center mb-6 border-b pb-4 border-amber-500/20">
+                  <h2 className="text-lg font-bold flex items-center text-amber-600 dark:text-amber-400">
+                    <Icon name="list" className="w-5 h-5 mr-2" />
+                    章節目錄
+                  </h2>
+                  <button onClick={() => setShowTocDrawer(false)} className="p-1.5 rounded-full hover:bg-amber-500/10">
+                    <Icon name="x" className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto space-y-1">
+                  {activeBook?.chapters && activeBook.chapters.length > 0 ? (
+                    activeBook.chapters.map((chap, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          setCurrentChapterIndex(idx);
+                          setShowTocDrawer(false);
+                          if (activeBook.format === 'TXT' && readerContainerRef.current) {
+                            readerContainerRef.current.scrollTop = (idx / activeBook.chapters.length) * readerContainerRef.current.scrollHeight;
+                          }
+                        }}
+                        className={`w-full text-left p-3 rounded-xl text-xs font-medium transition line-clamp-1 ${currentChapterIndex === idx ? 'bg-amber-500/20 text-amber-500 font-bold border border-amber-500/30' : 'hover:bg-amber-500/10'}`}
+                      >
+                        {chap.title}
+                      </button>
+                    ))
+                  ) : (
+                    <div className="text-center text-xs text-amber-700/50 dark:text-amber-400/50 py-8">
+                      全書未區分章節或為單章文本
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* BOOKMARKS DRAWER */}
+          {showBookmarksDrawer && (
+            <div className="fixed inset-0 z-50 flex justify-start bg-black/50 backdrop-blur-xs">
+              <div className="w-80 bg-white dark:bg-zinc-900 h-full shadow-2xl p-6 flex flex-col overflow-y-auto border-r border-amber-500/20">
+                <div className="flex justify-between items-center mb-6 border-b pb-4 border-amber-500/20">
+                  <h2 className="text-lg font-bold flex items-center text-amber-600 dark:text-amber-400">
+                    <Icon name="bookmark" className="w-5 h-5 mr-2" />
+                    已存書籤
+                  </h2>
+                  <button onClick={() => setShowBookmarksDrawer(false)} className="p-1.5 rounded-full hover:bg-amber-500/10">
+                    <Icon name="x" className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto space-y-2">
+                  {bookmarks.length > 0 ? (
+                    bookmarks.map((bm) => (
+                      <div
+                        key={bm.id}
+                        className="p-3 border border-amber-500/20 rounded-xl hover:border-amber-500/50 transition flex justify-between items-center bg-amber-500/5"
+                      >
+                        <div>
+                          <div className="font-bold text-xs text-amber-600 dark:text-amber-400">{bm.title}</div>
+                          <div className="text-[10px] text-gray-400 mt-0.5 font-mono">{bm.time}</div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setBookmarks(prev => prev.filter(b => b.id !== bm.id));
+                          }}
+                          className="p-1.5 text-gray-400 hover:text-red-500 transition"
+                        >
+                          <Icon name="trash-2" className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center text-xs text-amber-700/50 dark:text-amber-400/50 py-8">
+                      尚未加入任何閱讀書籤
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
