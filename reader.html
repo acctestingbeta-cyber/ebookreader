@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>繁體中文電子書閱讀器 (Traditional Chinese eBook Reader)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM CDN -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel compiler CDN for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- JSZip (Required for EPUB.js) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- EPUB.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
+    <style>
+        /* Custom scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.05);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(217, 119, 6, 0.3);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(217, 119, 6, 0.6);
+        }
+
+        /* Vertical text flow support */
+        .writing-vertical {
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+        }
+        .writing-horizontal {
+            writing-mode: horizontal-tb;
+        }
+
+        /* Reading content formatting */
+        .reader-content p {
+            margin-bottom: 1.25rem;
+            text-indent: 2em;
+            line-height: inherit;
+            word-break: break-words;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body class="bg-amber-50 text-stone-800 font-sans antialiased selection:bg-amber-200 selection:text-amber-900 min-h-screen">
+
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useCallback } = React;
+
+        // --- IndexedDB Database Engine ---
+        const DB_NAME = 'TraditionalChineseReaderDB';
+        const DB_VERSION = 1;
+        const STORE_BOOKS = 'books';
+        const STORE_PROGRESS = 'progress';
+
+        const initDB = () => {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+                request.onupgradeneeded = (e) => {
+                    const db = e.target.result;
+                    if (!db.objectStoreNames.contains(STORE_BOOKS)) {
+                        db.createObjectStore(STORE_BOOKS, { keyPath: 'id' });
+                    }
+                    if (!db.objectStoreNames.contains(STORE_PROGRESS)) {
+                        db.createObjectStore(STORE_PROGRESS, { keyPath: 'bookId' });
+                    }
+                };
+                request.onsuccess = (e) => resolve(e.target.result);
+                request.onerror = (e) => reject(e.target.error);
+            });
+        };
+
+        const dbSaveBook = async (bookData) => {
+            const db = await initDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(STORE_BOOKS, 'readwrite');
+                const store = tx.objectStore(STORE_BOOKS);
+                store.put(bookData);
+                tx.oncomplete = () => resolve();
+                tx.onerror = (e) => reject(e.target.error);
+            });
+        };
+
+        const dbGetAllBooks = async () => {
+            const db = await initDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(STORE_BOOKS, 'readonly');
+                const store = tx.objectStore(STORE_BOOKS);
+                const request = store.getAll();
+                request.onsuccess = () => resolve(request.result || []);
+                request.onerror = (e) => reject(e.target.error);
+            });
+        };
+
+        const dbDeleteBook = async (bookId) => {
+            const db = await initDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction([STORE_BOOKS, STORE_PROGRESS], 'readwrite');
+                tx.objectStore(STORE_BOOKS).delete(bookId);
+                tx.objectStore(STORE_PROGRESS).delete(bookId);
+                tx.oncomplete = () => resolve();
+                tx.onerror = (e) => reject(e.target.error);
+            });
+        };
+
+        const dbSaveProgress = async (progressData) => {
+            const db = await initDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(STORE_PROGRESS, 'readwrite');
+                tx.objectStore(STORE_PROGRESS).put(progressData);
+                tx.oncomplete = () => resolve();
+                tx.onerror = (e) => reject(e.target.error);
+            });
+        };
+
+        const dbGetProgress = async (bookId) => {
+            const db = await initDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(STORE_PROGRESS, 'readonly');
+                const request = tx.objectStore(STORE_PROGRESS).get(bookId);
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = (e) => reject(e.target.error);
+            });
+        };
+
+        // --- Sample Traditional Chinese Classic Book ---
+        const SAMPLE_BOOK = {
+            id: 'sample-sanguo',
+            title: '《三國演義》精選測試章節',
+            author: '羅貫中',
+            type: 'txt',
+            addedAt: new Date().toLocaleDateString('zh-TW'),
+            size: '54 KB',
+            content: `第一回 宴桃園豪傑三結義 斬黃巾英雄首立功
+
+話說天下大勢，分久必合，合久必分。週末七國分爭，併入於秦。秦滅之後，楚、漢分爭，又併入於漢。漢朝自高祖斬白蛇而起義，一統天下，後來光武中興，傳至獻帝，遂分為三國。推其致亂之由，殆始於桓、靈二帝。桓帝禁錮善類，崇信宦官。及桓帝崩，靈帝即位，大將軍竇武、太傅陳蕃共相輔佐。時有宦官曹節等弄權，竇武、陳蕃謀誅之，機事不密，反為所害，中涓自此愈橫。
+
+建寧二年四月望日，帝御溫德殿。方陞座，殿角狂風驟起。只見一條大青蛇，從梁上飛將下來，蟠於椅上。帝驚倒，左右急救入宮，百官俱奔避。須臾，蛇不見了。忽然大雨，雹下到半夜，方止，壞卻房屋無數。建寧四年二月，洛陽地震；又海水溢鳥，沿海居民，盡被大浪捲入海中。光和元年，雌雞化雄。六月朔，黑氣十餘丈，飛入溫德殿中。秋七月，玉堂玉晨殿災。大秦大起，京師地震。種種不祥，非止一端。帝下詔問群臣以災異之由，議郎蔡邕上疏，以為雞化女子、黑氣之異，出於婦寺干政，言頗切直。帝覽奏歎息，因起更衣。曹節在後竊視，悉宣告左右；遂以他事陷邕於罪，放歸田里。後張角、張寶、張梁等作亂，朝廷命諸將討之...
+
+第二回 張翼德怒鞭督郵 何國舅謀誅宦官
+
+且說張飛嚐見督郵，怒不可遏，直入後堂，拽督郵下縣衙前，縛於馬柱上，柳條奮力鞭撻，連折柳條數十根。玄德聞喧鬧聲，急出視之，見張飛所鞭乃督郵也，大驚問其故。飛曰：「此等害民賊，不打死留之何用！」督郵求救於玄德，玄德乃仁慈之人，急止飛曰：「弟勿躁，朝廷官吏，豈可擅殺？」
+
+督郵得脫，狼狽逃回郡中，具告太守，具言劉備等逆反之意。太守發兵捕之，玄德遂領關、飛二人離了安喜縣，投代州劉恢去了。
+
+時值朝廷內部大亂，大將軍何進欲除宦官十常侍，招外兵董卓入京。袁紹曰：「不可，董卓乃豺狼之徒，引入京師，必食人矣！」何進不聽，遂召董卓進京。董卓既至，廢少帝，立陳留王為獻帝，自封為相國，專斷朝政，天下大亂自此始矣...
+
+第三回 溫侯霸陵發威 曹操獻刀刺董
+
+董卓既執朝政，威震朝野，自此專橫跋扈，引得朝臣憤恨。百官夜會於司徒王允府中，王允設宴招待，酒至半酣，王允掩面大哭。百官驚問曰：「司徒大人何故作哭？」王允曰：「董卓逆天叛道，主上蒙塵，社稷將危，吾等食漢祿，安得不哭乎？」
+
+眾官聞言，亦皆痛哭。唯有一人仰天大笑曰：「滿朝公卿，夜哭到明，明哭到夜，能哭死董卓否？」王允視之，乃驍騎校尉曹操也。王允怒曰：「爾父祖亦食漢祿，今不思報國，反笑吾等？」操曰：「吾非笑別事，笑眾位無一計殺董卓耳。操雖不才，願斷董卓首級，懸於東門，以謝天下！」
+
+王允大喜，請曹操至密室，操曰：「操近日虛與委蛇，投身董卓，乃為取其信任。卓有七寶刀一把，司徒若願借此刀，操願入相府刺殺董卓，死而不恨！」王允遂將家傳七寶刀贈予曹操...`
+        };
+
+        // --- Inline SVG Icon Components ---
+        const Icon = ({ name, className = "w-5 h-5" }) => {
+            const icons = {
+                book: <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 19.5A2.5 2.5 0 0 0 6.5 22H20V3H6.5A2.5 2.5 0 0 0 4 5.5v14z" />,
+                upload: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />,
+                trash: <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6" />,
+                settings: <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2zM12 15a3 3 0 1 1 0-6 3 3 0 0 1 0 6z" />,
+                sun: <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10z" />,
+                moon: <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />,
+                bookmark: <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />,
+                list: <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />,
+                arrowLeft: <path d="M19 12H5M12 19l-7-7 7-7" />,
+                check: <path d="M20 6L9 17l-5-5" />,
+                grid: <path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z" />,
+                checkSquare: <path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />,
+                square: <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+            };
+
+            return (
+                <svg
+                    className={className}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                >
+                    {icons[name] || null}
+                </svg>
+            );
+        };
+
+        // --- Color & Theme Presets ---
+        const PRESET_THEMES = [
+            { id: 'light-gold', name: '暖金白', bg: '#FAF6ED', text: '#3D3425', card: '#F4ECD8' },
+            { id: 'parchment', name: '羊皮紙', bg: '#F2E8CF', text: '#2B2519', card: '#E6D7B4' },
+            { id: 'emerald', name: '竹青綠', bg: '#EAF2E8', text: '#1C3322', card: '#D8E5D5' },
+            { id: 'dark-slate', name: '曜石金', bg: '#1E2022', text: '#DFD0B8', card: '#2A2D30' },
+            { id: 'pure-night', name: '極夜黑', bg: '#121212', text: '#B0B0B0', card: '#1E1E1E' }
+        ];
+
+        // --- Main App Component ---
+        function App() {
+            // Book management states
+            const [books, setBooks] = useState([]);
+            const [activeBook, setActiveBook] = useState(null);
+            const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'list'
+            const [isBatchMode, setIsBatchMode] = useState(false);
+            const [selectedBookIds, setSelectedBookIds] = useState([]);
+            const [deleteModalBook, setDeleteModalBook] = useState(null);
+
+            // Reader Configuration States (Default Light Gold Theme)
+            const [theme, setTheme] = useState('light'); // 'light' | 'dark'
+            const [bgPreset, setBgPreset] = useState('light-gold');
+            const [customBg, setCustomBg] = useState('#FAF6ED');
+            const [customText, setCustomText] = useState('#3D3425');
+            const [fontSize, setFontSize] = useState(19);
+            const [fontFamily, setFontFamily] = useState('serif'); // 'serif' | 'sans' | 'kai'
+            const [isVertical, setIsVertical] = useState(false);
+            const [sidebarOpen, setSidebarOpen] = useState(false);
+            const [settingsOpen, setSettingsOpen] = useState(false);
+
+            // Reading Progress & Navigation
+            const [chapters, setChapters] = useState([]);
+            const [currentChapterIdx, setCurrentChapterIdx] = useState(0);
+            const [readProgress, setReadProgress] = useState(0);
+
+            const readerRef = useRef(null);
+            const epubRenditionRef = useRef(null);
+
+            // Load saved books from IndexedDB on startup
+            useEffect(() => {
+                async function loadLibrary() {
+                    try {
+                        let stored = await dbGetAllBooks();
+                        if (stored.length === 0) {
+                            await dbSaveBook(SAMPLE_BOOK);
+                            stored = [SAMPLE_BOOK];
+                        }
+                        setBooks(stored);
+                    } catch (err) {
+                        console.error('Failed to load DB library:', err);
+                    }
+                }
+                loadLibrary();
+            }, []);
+
+            // Apply light/dark mode changes
+            const activeThemeConfig = PRESET_THEMES.find(t => t.id === bgPreset) || PRESET_THEMES[0];
+            const currentBgColor = theme === 'dark' ? '#18181B' : (bgPreset === 'custom' ? customBg : activeThemeConfig.bg);
+            const currentTextColor = theme === 'dark' ? '#E4E4E7' : (bgPreset === 'custom' ? customText : activeThemeConfig.text);
+
+            // Handle File Upload
+            const handleFileUpload = async (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                const fileExt = file.name.split('.').pop().toLowerCase();
+                const newBook = {
+                    id: 'book-' + Date.now(),
+                    title: file.name.replace(/\.[^/.]+$/, ""),
+                    author: '未知作者',
+                    type: fileExt,
+                    addedAt: new Date().toLocaleDateString('zh-TW'),
+                    size: (file.size / 1024).toFixed(1) + ' KB',
+                    content: null
+                };
+
+                if (fileExt === 'txt') {
+                    const reader = new FileReader();
+                    reader.onload = async (e) => {
+                        newBook.content = e.target.result;
+                        await dbSaveBook(newBook);
+                        setBooks(prev => [newBook, ...prev]);
+                        openBook(newBook);
+                    };
+                    reader.readAsText(file, 'utf-8');
+                } else if (fileExt === 'epub') {
+                    const reader = new FileReader();
+                    reader.onload = async (e) => {
+                        newBook.content = e.target.result; // ArrayBuffer
+                        await dbSaveBook(newBook);
+                        setBooks(prev => [newBook, ...prev]);
+                        openBook(newBook);
+                    };
+                    reader.readAsArrayBuffer(file);
+                } else {
+                    alert('目前僅支援 .txt 及 .epub 格式電子書！');
+                }
+            };
+
+            // Parse chapters for TXT files
+            const parseTxtChapters = (text) => {
+                if (!text) return [];
+                const regex = /(第[零一二三四五六七八九十百千萬0-9]+[章回卷節部][^
+]*)/g;
+                const matches = [];
+                let match;
+                while ((match = regex.exec(text)) !== null) {
+                    matches.push({ title: match[1].trim(), index: match.index });
+                }
+                if (matches.length === 0) {
+                    return [{ title: '全書內容', index: 0 }];
+                }
+                return matches;
+            };
+
+            // Open a book & load progress
+            const openBook = async (book) => {
+                setActiveBook(book);
+                setSidebarOpen(false);
+
+                if (book.type === 'txt') {
+                    const chs = parseTxtChapters(book.content);
+                    setChapters(chs);
+
+                    const savedProg = await dbGetProgress(book.id);
+                    setTimeout(() => {
+                        if (readerRef.current && savedProg && savedProg.scrollTop) {
+                            readerRef.current.scrollTop = savedProg.scrollTop;
+                        } else if (readerRef.current) {
+                            readerRef.current.scrollTop = 0;
+                        }
+                    }, 100);
+                }
+            };
+
+            // EPUB Renderer Effect
+            useEffect(() => {
+                if (activeBook && activeBook.type === 'epub' && readerRef.current) {
+                    readerRef.current.innerHTML = '';
+                    try {
+                        const book = ePub(activeBook.content);
+                        const rendition = book.renderTo(readerRef.current, {
+                            width: '100%',
+                            height: '100%',
+                            flow: 'scrolled-doc'
+                        });
+
+                        rendition.display();
+                        epubRenditionRef.current = rendition;
+
+                        rendition.themes.default({
+                            body: {
+                                color: `${currentTextColor} !important`,
+                                background: `${currentBgColor} !important`,
+                                'font-size': `${fontSize}px !important`,
+                                'line-height': '1.8 !important'
+                            }
+                        });
+
+                        book.loaded.navigation.then(nav => {
+                            setChapters(nav.toc.map(item => ({ title: item.label, href: item.href })));
+                        });
+
+                        dbGetProgress(activeBook.id).then(saved => {
+                            if (saved && saved.cfi) {
+                                rendition.display(saved.cfi);
+                            }
+                        });
+                    } catch (err) {
+                        console.error('EPUB Loading Error:', err);
+                    }
+                }
+            }, [activeBook]);
+
+            // Save TXT scroll progress
+            const handleTxtScroll = useCallback(() => {
+                if (!readerRef.current || !activeBook || activeBook.type !== 'txt') return;
+                const { scrollTop, scrollHeight, clientHeight } = readerRef.current;
+                const pct = scrollHeight > clientHeight ? Math.round((scrollTop / (scrollHeight - clientHeight)) * 100) : 0;
+                setReadProgress(pct);
+
+                dbSaveProgress({
+                    bookId: activeBook.id,
+                    scrollTop,
+                    progressPct: pct,
+                    updatedAt: new Date().toISOString()
+                });
+            }, [activeBook]);
+
+            // Delete book handler
+            const confirmDeleteSingle = async () => {
+                if (!deleteModalBook) return;
+                await dbDeleteBook(deleteModalBook.id);
+                setBooks(prev => prev.filter(b => b.id !== deleteModalBook.id));
+                if (activeBook && activeBook.id === deleteModalBook.id) setActiveBook(null);
+                setDeleteModalBook(null);
+            };
+
+            const confirmBatchDelete = async () => {
+                if (selectedBookIds.length === 0) return;
+                for (const id of selectedBookIds) {
+                    await dbDeleteBook(id);
+                }
+                setBooks(prev => prev.filter(b => !selectedBookIds.includes(b.id)));
+                if (activeBook && selectedBookIds.includes(activeBook.id)) setActiveBook(null);
+                setSelectedBookIds([]);
+                setIsBatchMode(false);
+            };
+
+            const toggleSelectBook = (id) => {
+                setSelectedBookIds(prev =>
+                    prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+                );
+            };
+
+            // Font styles mapping
+            const fontStyleClass = {
+                serif: "font-serif",
+                sans: "font-sans",
+                kai: "font-mono"
+            }[fontFamily];
+
+            return (
+                <div 
+                    className="min-h-screen flex flex-col transition-colors duration-300"
+                    style={{ backgroundColor: currentBgColor, color: currentTextColor }}
+                >
+                    {/* Header Navbar */}
+                    <header className="sticky top-0 z-30 border-b border-amber-900/10 backdrop-blur-md px-4 py-3 flex items-center justify-between shadow-sm">
+                        <div className="flex items-center space-x-3">
+                            {activeBook ? (
+                                <button 
+                                    onClick={() => setActiveBook(null)} 
+                                    className="p-2 rounded-lg hover:bg-amber-500/10 transition-colors"
+                                    title="返回主選單"
+                                >
+                                    <Icon name="arrowLeft" />
+                                </button>
+                            ) : (
+                                <div className="p-2 bg-amber-600 text-white rounded-lg shadow-sm">
+                                    <Icon name="book" />
+                                </div>
+                            )}
+                            <h1 className="text-xl font-bold tracking-wide">
+                                {activeBook ? activeBook.title : "繁體中文電子書閱讀器"}
+                            </h1>
+                        </div>
+
+                        <div className="flex items-center space-x-2">
+                            {/* Theme Toggle (Light / Dark) */}
+                            <button
+                                onClick={() => setTheme(prev => prev === 'light' ? 'dark' : 'light')}
+                                className="p-2 rounded-lg hover:bg-amber-500/10 transition-colors"
+                                title="切換黑夜/白天模式"
+                            >
+                                <Icon name={theme === 'light' ? 'moon' : 'sun'} />
+                            </button>
+
+                            {activeBook && (
+                                <>
+                                    <button
+                                        onClick={() => setSidebarOpen(true)}
+                                        className="p-2 rounded-lg hover:bg-amber-500/10 transition-colors"
+                                        title="章節目錄"
+                                    >
+                                        <Icon name="list" />
+                                    </button>
+                                    <button
+                                        onClick={() => setSettingsOpen(true)}
+                                        className="p-2 rounded-lg hover:bg-amber-500/10 transition-colors"
+                                        title="閱讀設定"
+                                    >
+                                        <Icon name="settings" />
+                                    </button>
+                                </>
+                            )}
+                        </div>
+                    </header>
+
+                    {/* Main View Manager */}
+                    {!activeBook ? (
+                        /* LIBRARY / MAIN MENU VIEW */
+                        <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-6 space-y-6">
+                            {/* Action Bar */}
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-amber-500/5 p-4 rounded-xl border border-amber-900/10">
+                                <div>
+                                    <h2 className="text-lg font-bold">我的藏書庫</h2>
+                                    <p className="text-xs opacity-75">本地 IndexedDB 自動儲存閱讀進度及書籍</p>
+                                </div>
+
+                                <div className="flex items-center space-x-2">
+                                    <label className="flex items-center space-x-2 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg cursor-pointer transition-colors shadow-sm text-sm font-medium">
+                                        <Icon name="upload" />
+                                        <span>上傳 TXT / EPUB</span>
+                                        <input type="file" accept=".txt,.epub" onChange={handleFileUpload} className="hidden" />
+                                    </label>
+
+                                    {isBatchMode ? (
+                                        <div className="flex items-center space-x-2">
+                                            <button
+                                                onClick={confirmBatchDelete}
+                                                disabled={selectedBookIds.length === 0}
+                                                className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-3 py-2 rounded-lg text-sm flex items-center space-x-1"
+                                            >
+                                                <Icon name="trash" className="w-4 h-4" />
+                                                <span>刪除已選 ({selectedBookIds.length})</span>
+                                            </button>
+                                            <button
+                                                onClick={() => { setIsBatchMode(false); setSelectedBookIds([]); }}
+                                                className="px-3 py-2 rounded-lg border border-stone-300 text-sm hover:bg-amber-500/10"
+                                            >
+                                                取消
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <button
+                                            onClick={() => setIsBatchMode(true)}
+                                            className="p-2 border border-amber-900/20 rounded-lg hover:bg-amber-500/10 text-sm flex items-center space-x-1"
+                                            title="批量管理刪除"
+                                        >
+                                            <Icon name="checkSquare" className="w-4 h-4" />
+                                            <span className="hidden sm:inline">批量管理</span>
+                                        </button>
+                                    )}
+
+                                    <div className="border-l border-amber-900/20 h-6 mx-1"></div>
+
+                                    <button
+                                        onClick={() => setViewMode(prev => prev === 'grid' ? 'list' : 'grid')}
+                                        className="p-2 border border-amber-900/20 rounded-lg hover:bg-amber-500/10"
+                                        title="切換檢視"
+                                    >
+                                        <Icon name={viewMode === 'grid' ? 'list' : 'grid'} />
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Books Display */}
+                            {books.length === 0 ? (
+                                <div className="text-center py-20 border-2 border-dashed border-amber-900/20 rounded-2xl">
+                                    <Icon name="book" className="w-16 h-16 mx-auto mb-4 opacity-40" />
+                                    <p className="text-lg font-medium mb-1">書庫空空如也</p>
+                                    <p className="text-sm opacity-70 mb-4">請點擊上方按鈕上傳 .txt 或 .epub 電子書</p>
+                                </div>
+                            ) : viewMode === 'grid' ? (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                                    {books.map(book => (
+                                        <div
+                                            key={book.id}
+                                            className={`relative group rounded-xl border border-amber-900/10 p-4 transition-all duration-200 flex flex-col justify-between cursor-pointer shadow-sm hover:shadow-md ${
+                                                selectedBookIds.includes(book.id) ? 'ring-2 ring-amber-600' : ''
+                                            }`}
+                                            style={{ backgroundColor: activeThemeConfig.card }}
+                                            onClick={() => {
+                                                if (isBatchMode) toggleSelectBook(book.id);
+                                                else openBook(book);
+                                            }}
+                                        >
+                                            {isBatchMode && (
+                                                <div className="absolute top-2 right-2 z-10 text-amber-600">
+                                                    <Icon name={selectedBookIds.includes(book.id) ? "checkSquare" : "square"} />
+                                                </div>
+                                            )}
+
+                                            {!isBatchMode && (
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setDeleteModalBook(book);
+                                                    }}
+                                                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1.5 bg-red-500 text-white rounded-md hover:bg-red-600 transition-opacity"
+                                                    title="刪除檔案"
+                                                >
+                                                    <Icon name="trash" className="w-4 h-4" />
+                                                </button>
+                                            )}
+
+                                            <div className="space-y-2 mb-4">
+                                                <div className="w-10 h-10 rounded-lg bg-amber-600/20 flex items-center justify-center text-amber-700 font-bold uppercase text-xs">
+                                                    {book.type}
+                                                </div>
+                                                <h3 className="font-bold text-base line-clamp-2 leading-snug">{book.title}</h3>
+                                                <p className="text-xs opacity-75">{book.author}</p>
+                                            </div>
+
+                                            <div className="text-[11px] opacity-60 flex items-center justify-between pt-2 border-t border-amber-900/10">
+                                                <span>{book.size}</span>
+                                                <span>{book.addedAt}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="divide-y divide-amber-900/10 border border-amber-900/10 rounded-xl overflow-hidden">
+                                    {books.map(book => (
+                                        <div
+                                            key={book.id}
+                                            onClick={() => {
+                                                if (isBatchMode) toggleSelectBook(book.id);
+                                                else openBook(book);
+                                            }}
+                                            className="p-4 flex items-center justify-between hover:bg-amber-500/5 cursor-pointer transition-colors"
+                                        >
+                                            <div className="flex items-center space-x-3">
+                                                {isBatchMode && (
+                                                    <div className="text-amber-600">
+                                                        <Icon name={selectedBookIds.includes(book.id) ? "checkSquare" : "square"} />
+                                                    </div>
+                                                )}
+                                                <div className="w-8 h-8 rounded bg-amber-600/20 flex items-center justify-center text-amber-700 font-bold uppercase text-xs">
+                                                    {book.type}
+                                                </div>
+                                                <div>
+                                                    <h3 className="font-bold text-sm">{book.title}</h3>
+                                                    <p className="text-xs opacity-75">{book.author} • {book.size}</p>
+                                                </div>
+                                            </div>
+
+                                            {!isBatchMode && (
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setDeleteModalBook(book);
+                                                    }}
+                                                    className="p-2 text-red-500 hover:bg-red-500/10 rounded-lg"
+                                                >
+                                                    <Icon name="trash" className="w-4 h-4" />
+                                                </button>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </main>
+                    ) : (
+                        /* READER VIEW */
+                        <div className="relative flex-1 flex overflow-hidden">
+                            {/* Reader Main Body Container */}
+                            <div
+                                ref={readerRef}
+                                onScroll={handleTxtScroll}
+                                className={`flex-1 overflow-y-auto px-6 py-8 md:px-20 md:py-12 max-w-4xl mx-auto transition-all ${fontStyleClass} ${
+                                    isVertical ? 'writing-vertical h-full' : 'writing-horizontal'
+                                }`}
+                                style={{
+                                    fontSize: `${fontSize}px`,
+                                    lineHeight: '1.8'
+                                }}
+                            >
+                                {activeBook.type === 'txt' && (
+                                    <div className="reader-content select-text space-y-4">
+                                        {activeBook.content ? (
+                                            activeBook.content.split('
+').map((para, i) => (
+                                                para.trim() ? <p key={i}>{para.trim()}</p> : null
+                                            ))
+                                        ) : (
+                                            <p className="text-center opacity-50">正在讀取文本內容...</p>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Sidebar Chapter Drawer */}
+                            {sidebarOpen && (
+                                <div className="absolute inset-y-0 left-0 z-40 w-72 bg-amber-50 dark:bg-stone-900 border-r border-amber-900/10 shadow-xl flex flex-col">
+                                    <div className="p-4 border-b border-amber-900/10 flex justify-between items-center">
+                                        <h3 className="font-bold">章節目錄</h3>
+                                        <button onClick={() => setSidebarOpen(false)} className="p-1 hover:bg-amber-500/10 rounded">✕</button>
+                                    </div>
+                                    <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                                        {chapters.map((ch, idx) => (
+                                            <button
+                                                key={idx}
+                                                onClick={() => {
+                                                    if (activeBook.type === 'txt') {
+                                                        readerRef.current.scrollTop = ch.index;
+                                                    } else if (epubRenditionRef.current && ch.href) {
+                                                        epubRenditionRef.current.display(ch.href);
+                                                    }
+                                                    setSidebarOpen(false);
+                                                }}
+                                                className="w-full text-left px-3 py-2 rounded text-sm truncate hover:bg-amber-500/10"
+                                            >
+                                                {ch.title}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Reader Settings Drawer */}
+                            {settingsOpen && (
+                                <div className="absolute inset-y-0 right-0 z-40 w-80 bg-amber-50 dark:bg-stone-900 border-l border-amber-900/10 shadow-xl p-6 flex flex-col space-y-6">
+                                    <div className="flex justify-between items-center border-b pb-3 border-amber-900/10">
+                                        <h3 className="font-bold text-lg">閱讀設定</h3>
+                                        <button onClick={() => setSettingsOpen(false)} className="p-1 hover:bg-amber-500/10 rounded">✕</button>
+                                    </div>
+
+                                    {/* Font Size */}
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-bold text-amber-900/70 dark:text-stone-400 uppercase">字體大小 ({fontSize}px)</label>
+                                        <div className="flex items-center space-x-3">
+                                            <button onClick={() => setFontSize(s => Math.max(12, s - 2))} className="px-3 py-1 bg-amber-500/10 rounded font-bold">A-</button>
+                                            <input type="range" min="12" max="36" value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} className="flex-1 accent-amber-600" />
+                                            <button onClick={() => setFontSize(s => Math.min(36, s + 2))} className="px-3 py-1 bg-amber-500/10 rounded font-bold">A+</button>
+                                        </div>
+                                    </div>
+
+                                    {/* Font Family */}
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-bold text-amber-900/70 dark:text-stone-400 uppercase">字體選擇</label>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {[
+                                                { id: 'serif', name: '明體' },
+                                                { id: 'sans', name: '黑體' },
+                                                { id: 'kai', name: '楷體' }
+                                            ].map(f => (
+                                                <button
+                                                    key={f.id}
+                                                    onClick={() => setFontFamily(f.id)}
+                                                    className={`py-2 text-sm rounded border ${fontFamily === f.id ? 'border-amber-600 bg-amber-600/10 font-bold' : 'border-amber-900/10'}`}
+                                                >
+                                                    {f.name}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Background Presets */}
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-bold text-amber-900/70 dark:text-stone-400 uppercase">背景主題</label>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {PRESET_THEMES.map(t => (
+                                                <button
+                                                    key={t.id}
+                                                    onClick={() => { setBgPreset(t.id); setTheme('light'); }}
+                                                    className={`py-2 text-xs rounded border flex flex-col items-center space-y-1 ${bgPreset === t.id ? 'ring-2 ring-amber-600' : ''}`}
+                                                    style={{ backgroundColor: t.bg, color: t.text }}
+                                                >
+                                                    <span>{t.name}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Custom Color Picker */}
+                                    <div className="space-y-2 pt-2 border-t border-amber-900/10">
+                                        <label className="text-xs font-bold text-amber-900/70 dark:text-stone-400 uppercase">自訂調色盤</label>
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-sm">背景顏色</span>
+                                            <input type="color" value={customBg} onChange={(e) => { setCustomBg(e.target.value); setBgPreset('custom'); }} className="w-8 h-8 rounded cursor-pointer border-0" />
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-sm">文字顏色</span>
+                                            <input type="color" value={customText} onChange={(e) => { setCustomText(e.target.value); setBgPreset('custom'); }} className="w-8 h-8 rounded cursor-pointer border-0" />
+                                        </div>
+                                    </div>
+
+                                    {/* Text Flow */}
+                                    <div className="space-y-2 pt-2 border-t border-amber-900/10">
+                                        <label className="text-xs font-bold text-amber-900/70 dark:text-stone-400 uppercase">文字排版</label>
+                                        <button
+                                            onClick={() => setIsVertical(v => !v)}
+                                            className="w-full py-2 bg-amber-600/10 border border-amber-600/20 text-sm font-bold rounded"
+                                        >
+                                            切換為：{isVertical ? '橫排顯示 (Horizontal)' : '直排顯示 (Vertical)'}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Single File Delete Confirmation Modal */}
+                    {deleteModalBook && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+                            <div className="bg-white dark:bg-stone-900 rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-4">
+                                <h3 className="font-bold text-lg">確認刪除檔案？</h3>
+                                <p className="text-sm opacity-75">
+                                    您確定要刪除《<span className="font-semibold">{deleteModalBook.title}</span>》嗎？此動作將連同閱讀紀錄一併移除。
+                                </p>
+                                <div className="flex justify-end space-x-3 pt-2">
+                                    <button
+                                        onClick={() => setDeleteModalBook(null)}
+                                        className="px-4 py-2 rounded-lg border border-amber-900/10 text-sm hover:bg-amber-500/10"
+                                    >
+                                        取消
+                                    </button>
+                                    <button
+                                        onClick={confirmDeleteSingle}
+                                        className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm hover:bg-red-700"
+                                    >
+                                        刪除檔案
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
