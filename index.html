@@ -1,0 +1,2837 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>雅閱書閣 — 繁體中文電子書閱讀器</title>
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- JSZip & EPUB.js via CDN for .epub parsing and rendering -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js"></script>
+  <!-- Google Fonts for Traditional Chinese typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=LXGW+WenKai+TC:wght@400;700&family=Noto+Sans+TC:wght@400;500;600;700&family=Noto+Serif+TC:wght@400;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --reader-bg: #FAF6EE;
+      --reader-ink: #2C241B;
+      --reader-surface: #F3EDE0;
+      --reader-border: #E2D7C1;
+      --reader-accent: #9E6B25;
+      --reader-font-size: 20px;
+      --reader-margin: 36px;
+      --reader-font-family: "Noto Serif TC", "Songti TC", "PMingLiU", serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Noto Sans TC", -apple-system, BlinkMacSystemFont, "Microsoft JhengHei", sans-serif;
+      background-color: #F7F4EE;
+      color: #26221E;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    .serif-title {
+      font-family: "Noto Serif TC", "Songti TC", serif;
+    }
+
+    /* Reader Viewport Styling */
+    #reader-view {
+      background-color: var(--reader-bg);
+      color: var(--reader-ink);
+      transition: background-color 0.25s ease, color 0.25s ease;
+    }
+
+    #reader-scroll-container {
+      font-family: var(--reader-font-family);
+      font-size: var(--reader-font-size);
+      color: var(--reader-ink);
+      line-height: 1.9;
+      letter-spacing: 0.04em;
+      scroll-behavior: auto;
+    }
+
+    /* Paragraph formatting for TXT engine */
+    .reader-content p {
+      text-indent: 2em;
+      margin-top: 0;
+      margin-bottom: 1.05em;
+      line-height: 1.95;
+      word-break: break-word;
+      overflow-wrap: break-word;
+    }
+
+    .reader-content h2.chapter-heading {
+      font-weight: 700;
+      font-size: 1.35em;
+      line-height: 1.45;
+      margin-top: 2em;
+      margin-bottom: 1.15em;
+      text-indent: 0;
+      padding-bottom: 0.45em;
+      border-bottom: 1px solid rgba(158, 107, 37, 0.22);
+    }
+
+    .reader-content h2.chapter-heading:first-child {
+      margin-top: 0.25em;
+    }
+
+    /* Horizontal Mode (橫排) */
+    .mode-horizontal {
+      writing-mode: horizontal-tb;
+      overflow-y: auto;
+      overflow-x: hidden;
+      height: calc(100vh - 64px);
+    }
+
+    .mode-horizontal .reader-article {
+      width: 100%;
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 2.5rem var(--reader-margin) 5rem;
+    }
+
+    /* Vertical Mode (直排) */
+    .mode-vertical {
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      overflow-x: auto;
+      overflow-y: hidden;
+      height: calc(100vh - 64px);
+      width: 100%;
+    }
+
+    .mode-vertical .reader-article {
+      height: 100%;
+      padding: var(--reader-margin) 3rem;
+      max-width: none;
+    }
+
+    /* Fullscreen Mode (全螢幕沉浸閱讀) */
+    #reader-view.is-fullscreen #reader-toolbar {
+      display: none;
+    }
+    #reader-view.is-fullscreen .mode-horizontal,
+    #reader-view.is-fullscreen .mode-vertical {
+      height: 100vh;
+    }
+
+    .mode-vertical .reader-content h2.chapter-heading {
+      margin-top: 0;
+      margin-bottom: 0;
+      margin-left: 1.6em;
+      margin-right: 1.8em;
+      padding-bottom: 0;
+      padding-left: 0.45em;
+      border-bottom: none;
+      border-left: 1px solid rgba(158, 107, 37, 0.25);
+    }
+
+    .mode-vertical .reader-content p {
+      margin-bottom: 0;
+      margin-left: 1.15em;
+    }
+
+    /* Book Card Hover Trash Icon */
+    .book-card .single-delete-btn {
+      opacity: 0;
+      transition: opacity 0.18s ease, transform 0.18s ease;
+    }
+    .book-card:hover .single-delete-btn,
+    .book-card:focus-within .single-delete-btn {
+      opacity: 1;
+    }
+    @media (hover: none) {
+      .book-card .single-delete-btn {
+        opacity: 1;
+      }
+    }
+
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.04);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(120, 105, 85, 0.35);
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(120, 105, 85, 0.55);
+    }
+
+    /* EPUB Viewport Container */
+    #epub-render-mount {
+      width: 100%;
+      min-height: calc(100vh - 140px);
+    }
+  </style>
+</head>
+<body class="antialiased selection:bg-amber-200 selection:text-amber-950">
+
+  <!-- ==================== LIBRARY VIEW (書庫首頁) ==================== -->
+  <div id="library-view" class="min-h-screen flex flex-col">
+    <!-- Header -->
+    <header class="sticky top-0 z-20 bg-[#FAF7F0]/95 backdrop-blur border-b border-[#E5DEC9]">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-amber-800 text-amber-50 flex items-center justify-center shadow-sm">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/>
+            </svg>
+          </div>
+          <div>
+            <h1 class="serif-title text-xl font-bold tracking-wide text-stone-900">雅閱書閣</h1>
+            <p class="text-xs text-stone-500">繁體中文電子書閱讀器 · 支援 TXT / EPUB</p>
+          </div>
+        </div>
+
+        <!-- Library Controls -->
+        <div class="flex items-center gap-2 sm:gap-3 flex-wrap justify-end">
+          <!-- View Mode Toggle (網格 / 清單) -->
+          <div class="inline-flex rounded-lg border border-[#DCD2BA] bg-[#F2ECE1] p-0.5" role="group" aria-label="檢視模式切換">
+            <button id="view-grid-btn" type="button" class="px-2.5 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition bg-white text-stone-900 shadow-sm" title="網格檢視">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z"/>
+              </svg>
+              <span>網格檢視</span>
+            </button>
+            <button id="view-list-btn" type="button" class="px-2.5 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition text-stone-600 hover:text-stone-900" title="清單檢視">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/>
+              </svg>
+              <span>清單檢視</span>
+            </button>
+          </div>
+
+          <!-- Traditional / Simplified Chinese Toggle (繁 / 簡切換) -->
+          <button id="library-lang-btn" type="button" class="px-3 py-2 rounded-lg border border-[#D5CBB4] bg-white hover:bg-stone-50 text-stone-700 text-xs sm:text-sm font-medium flex items-center gap-1.5 transition shadow-sm" title="切換繁體中文 / 簡體中文">
+            <span class="font-serif font-bold text-amber-900" id="library-lang-badge">繁</span>
+            <span id="library-lang-label">繁體</span>
+          </button>
+
+          <!-- Batch Management Mode Button (批量管理) -->
+          <button id="batch-mode-btn" type="button" class="px-3.5 py-2 rounded-lg border border-[#D5CBB4] bg-white hover:bg-stone-50 text-stone-700 text-xs sm:text-sm font-medium flex items-center gap-1.5 transition shadow-sm">
+            <svg class="w-4 h-4 text-stone-600" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            <span id="batch-mode-label">批量管理</span>
+          </button>
+
+          <!-- Upload File Trigger -->
+          <label for="file-upload-input" class="cursor-pointer px-4 py-2 rounded-lg bg-amber-800 hover:bg-amber-900 active:bg-amber-950 text-amber-50 text-xs sm:text-sm font-medium flex items-center gap-1.5 transition shadow-sm">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+            </svg>
+            <span>匯入書籍</span>
+          </label>
+          <input id="file-upload-input" type="file" accept=".txt,.epub" multiple class="hidden">
+        </div>
+      </div>
+
+      <!-- Batch Action Bar (Hidden unless batch mode is active) -->
+      <div id="batch-action-bar" class="hidden bg-amber-950 text-amber-50 border-t border-amber-900">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between flex-wrap gap-3">
+          <div class="flex items-center gap-4 text-sm">
+            <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+              <input id="batch-select-all" type="checkbox" class="w-4 h-4 rounded border-amber-400 text-amber-600 focus:ring-amber-500">
+              <span>全選書庫</span>
+            </label>
+            <span id="batch-selected-status" class="text-amber-200 text-xs sm:text-sm">已選取 0 本書籍</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="batch-delete-btn" type="button" disabled class="px-3.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:pointer-events-none text-white text-xs sm:text-sm font-medium flex items-center gap-1.5 transition">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>
+              </svg>
+              <span>刪除已選書籍</span>
+            </button>
+            <button id="batch-cancel-btn" type="button" class="px-3 py-1.5 rounded-lg border border-amber-700 hover:bg-amber-900 text-amber-100 text-xs sm:text-sm transition">
+              完成
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Library Content -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+      <!-- Drag and Drop Upload Zone -->
+      <section id="drop-zone" class="rounded-2xl border-2 border-dashed border-[#D6C9B1] bg-[#FBF9F4] hover:border-amber-700 hover:bg-[#FAF5E8] transition-all p-6 sm:p-7 text-center cursor-pointer group">
+        <div class="max-w-lg mx-auto flex flex-col sm:flex-row items-center justify-center gap-4">
+          <div class="w-12 h-12 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+            </svg>
+          </div>
+          <div class="text-center sm:text-left">
+            <p class="text-sm sm:text-base font-semibold text-stone-800">
+              拖放檔案至此處，或點擊選擇檔案匯入書庫
+            </p>
+            <p class="text-xs text-stone-500 mt-1">
+              支援 <span class="font-medium text-stone-700">.txt</span>（自動解析繁體中文「第…章/回/卷/節/部」章節目錄）與 <span class="font-medium text-stone-700">.epub</span> 電子書格式，自動儲存於本機 IndexedDB
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Import error / status banner (hidden unless needed) -->
+      <div id="library-alert" class="hidden rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 flex items-center justify-between">
+        <span id="library-alert-text"></span>
+        <button id="library-alert-close" type="button" class="text-red-600 hover:text-red-900 font-medium text-xs">關閉</button>
+      </div>
+
+      <!-- Books Container (Grid or List) -->
+      <section aria-label="個人書庫">
+        <div id="books-container"></div>
+
+        <!-- Empty State -->
+        <div id="empty-library-state" class="hidden rounded-2xl border border-[#E5DEC9] bg-white/80 py-16 px-6 text-center">
+          <div class="w-14 h-14 rounded-2xl bg-stone-100 text-stone-500 flex items-center justify-center mx-auto mb-4">
+            <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/>
+            </svg>
+          </div>
+          <h2 class="serif-title text-lg font-bold text-stone-800">書庫目前尚無藏書</h2>
+          <p class="text-sm text-stone-500 mt-1 max-w-md mx-auto">請點擊上方「匯入書籍」或將 .txt / .epub 電子書拖放至上傳區，亦可重新載入預設經典範例。</p>
+          <div class="mt-5 flex items-center justify-center gap-3">
+            <button id="restore-sample-btn" type="button" class="px-4 py-2 rounded-lg border border-amber-700 text-amber-800 hover:bg-amber-50 text-xs sm:text-sm font-medium transition">
+              載入預設經典範例《三國演義》
+            </button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ==================== READER VIEW (閱讀器視窗) ==================== -->
+  <div id="reader-view" class="hidden fixed inset-0 z-30 flex flex-col">
+    <!-- Top Reader Toolbar -->
+    <header id="reader-toolbar" class="h-16 px-3 sm:px-6 border-b border-black/10 flex items-center justify-between gap-2 shrink-0 bg-black/[0.03] backdrop-blur-sm">
+      <div class="flex items-center gap-2 sm:gap-3 min-w-0">
+        <button id="back-to-library-btn" type="button" class="px-3 py-1.5 rounded-lg border border-current/20 hover:bg-current/10 text-xs sm:text-sm font-medium flex items-center gap-1.5 transition shrink-0" title="返回書庫">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/>
+          </svg>
+          <span>返回書庫</span>
+        </button>
+
+        <div class="min-w-0">
+          <h2 id="reader-book-title" class="serif-title font-bold text-sm sm:text-base truncate">書名</h2>
+          <p id="reader-current-chapter" class="text-xs opacity-70 truncate">章節目錄</p>
+        </div>
+      </div>
+
+      <!-- Right Controls: TOC Drawer, Quick Direction Toggle, Settings Drawer -->
+      <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+        <span id="reader-progress-indicator" class="hidden md:inline-block text-xs opacity-75 px-2 py-1 rounded bg-black/5">
+          進度 0%
+        </span>
+
+        <!-- One-click Traditional / Simplified Toggle (繁 / 簡) -->
+        <button id="quick-lang-btn" type="button" class="px-2.5 py-1.5 rounded-lg border border-current/20 hover:bg-current/10 text-xs sm:text-sm font-medium flex items-center gap-1 transition" title="切換繁體中文與簡體中文">
+          <span id="quick-lang-label" class="font-bold">繁體</span>
+        </button>
+
+        <!-- One-click Quick Direction Toggle (橫排 / 直排) -->
+        <button id="quick-direction-btn" type="button" class="px-3 py-1.5 rounded-lg border border-current/20 hover:bg-current/10 text-xs sm:text-sm font-medium flex items-center gap-1.5 transition" title="切換橫排與直排閱讀">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"/>
+          </svg>
+          <span id="quick-direction-label">直排</span>
+        </button>
+
+        <!-- Full Screen Toggle Button (全螢幕) -->
+        <button id="fullscreen-toggle-btn" type="button" class="px-3 py-1.5 rounded-lg border border-current/20 hover:bg-current/10 text-xs sm:text-sm font-medium flex items-center gap-1.5 transition" title="切換全螢幕閱讀模式">
+          <svg id="fullscreen-icon-enter" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15"/>
+          </svg>
+          <span class="hidden sm:inline" id="fullscreen-toggle-label">全螢幕</span>
+        </button>
+
+        <!-- Chapter List Drawer Button (章節目錄) -->
+        <button id="open-toc-btn" type="button" class="px-3 py-1.5 rounded-lg border border-current/20 hover:bg-current/10 text-xs sm:text-sm font-medium flex items-center gap-1.5 transition" title="開啟章節目錄">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12"/>
+          </svg>
+          <span>章節目錄</span>
+        </button>
+
+        <!-- Reader Settings Drawer Button (閱讀設定) -->
+        <button id="open-settings-btn" type="button" class="px-3 py-1.5 rounded-lg border border-current/20 hover:bg-current/10 text-xs sm:text-sm font-medium flex items-center gap-1.5 transition" title="開啟閱讀排版設定">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75"/>
+          </svg>
+          <span>排版設定</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Floating Controls in Fullscreen Mode (全螢幕浮動控制列) -->
+    <div id="fullscreen-floating-bar" class="hidden fixed top-3 right-4 z-40 flex items-center gap-2">
+      <button id="fs-open-toc-btn" type="button" class="px-3 py-1.5 rounded-full bg-stone-900/75 hover:bg-stone-900 text-amber-50 text-xs font-medium shadow-lg backdrop-blur transition flex items-center gap-1.5" title="章節目錄">
+        <span>目錄</span>
+      </button>
+      <button id="fs-open-settings-btn" type="button" class="px-3 py-1.5 rounded-full bg-stone-900/75 hover:bg-stone-900 text-amber-50 text-xs font-medium shadow-lg backdrop-blur transition flex items-center gap-1.5" title="排版設定">
+        <span>設定</span>
+      </button>
+      <button id="exit-fullscreen-btn" type="button" class="px-3.5 py-1.5 rounded-full bg-amber-800/90 hover:bg-amber-900 text-amber-50 text-xs font-medium shadow-lg backdrop-blur transition flex items-center gap-1.5" title="退出全螢幕 (Esc)">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25"/>
+        </svg>
+        <span>退出全螢幕</span>
+      </button>
+    </div>
+
+    <!-- Main Scrollable Reading Surface -->
+    <div id="reader-scroll-container" class="mode-horizontal flex-1 relative">
+      <!-- TXT Reading Surface -->
+      <article id="txt-reader-article" class="reader-article">
+        <div id="txt-reader-content" class="reader-content"></div>
+      </article>
+
+      <!-- EPUB Reading Surface -->
+      <div id="epub-reader-wrapper" class="hidden max-w-4xl mx-auto px-3 sm:px-6 py-4">
+        <div class="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-current/15 text-xs">
+          <button id="epub-prev-btn" type="button" class="px-3 py-1.5 rounded-lg border border-current/20 hover:bg-current/10 transition">上一章節 / 頁面</button>
+          <span id="epub-status-label" class="opacity-75">EPUB 閱讀模式</span>
+          <button id="epub-next-btn" type="button" class="px-3 py-1.5 rounded-lg border border-current/20 hover:bg-current/10 transition">下一章節 / 頁面</button>
+        </div>
+        <div id="epub-render-mount"></div>
+      </div>
+    </div>
+
+    <!-- Drawer Backdrop -->
+    <div id="drawer-backdrop" class="hidden fixed inset-0 z-40 bg-black/40 backdrop-blur-[1px] transition-opacity"></div>
+
+    <!-- ==================== TOC SLIDE-OVER DRAWER (章節目錄側邊欄) ==================== -->
+    <aside id="toc-drawer" class="fixed top-0 left-0 bottom-0 z-50 w-80 max-w-[88vw] bg-[#FAF7F0] text-stone-900 shadow-2xl border-r border-[#E2D9C5] transform -translate-x-full transition-transform duration-200 flex flex-col" aria-label="章節目錄">
+      <div class="p-4 border-b border-[#E5DEC9] flex items-center justify-between">
+        <div>
+          <h3 class="serif-title font-bold text-base text-stone-900">章節目錄</h3>
+          <p id="toc-count-caption" class="text-xs text-stone-500 mt-0.5">共 0 章</p>
+        </div>
+        <button id="close-toc-btn" type="button" class="p-1.5 rounded-lg text-stone-500 hover:text-stone-900 hover:bg-stone-200/60 transition" title="關閉章節目錄">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <div id="toc-list" class="flex-1 overflow-y-auto divide-y divide-[#EFE9DA] p-2"></div>
+    </aside>
+
+    <!-- ==================== SETTINGS SLIDE-OVER DRAWER (閱讀設定面板) ==================== -->
+    <aside id="settings-drawer" class="fixed top-0 right-0 bottom-0 z-50 w-80 sm:w-96 max-w-[92vw] bg-[#FAF7F0] text-stone-900 shadow-2xl border-l border-[#E2D9C5] transform translate-x-full transition-transform duration-200 flex flex-col" aria-label="閱讀排版設定">
+      <div class="p-4 border-b border-[#E5DEC9] flex items-center justify-between">
+        <div>
+          <h3 class="serif-title font-bold text-base text-stone-900">閱讀與排版設定</h3>
+          <p class="text-xs text-stone-500 mt-0.5">即時調整字級、字型、主題與文字流向</p>
+        </div>
+        <button id="close-settings-btn" type="button" class="p-1.5 rounded-lg text-stone-500 hover:text-stone-900 hover:bg-stone-200/60 transition" title="關閉設定面板">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-5 space-y-6 text-sm">
+        <!-- 0. Traditional / Simplified Chinese Switch (繁簡文字切換) & Fullscreen -->
+        <div class="grid grid-cols-1 gap-4 pb-4 border-b border-[#E5DEC9]">
+          <div>
+            <label class="block font-semibold text-stone-800 mb-2">繁簡文字顯示</label>
+            <div class="grid grid-cols-2 gap-2.5">
+              <button id="lang-tc-btn" type="button" class="py-2.5 px-3 rounded-xl border text-center font-medium transition flex items-center justify-center gap-1.5">
+                <span class="font-serif font-bold">繁體中文</span>
+                <span class="text-xs opacity-70">(正體)</span>
+              </button>
+              <button id="lang-sc-btn" type="button" class="py-2.5 px-3 rounded-xl border text-center font-medium transition flex items-center justify-center gap-1.5">
+                <span class="font-serif font-bold">簡體中文</span>
+                <span class="text-xs opacity-70">(簡化字)</span>
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label class="block font-semibold text-stone-800 mb-2">全螢幕閱讀模式</label>
+            <button id="drawer-fullscreen-btn" type="button" class="w-full py-2.5 px-4 rounded-xl border border-[#D5CBB4] bg-white hover:bg-stone-100 text-stone-800 font-medium transition flex items-center justify-center gap-2 shadow-sm">
+              <svg class="w-4 h-4 text-amber-800" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15"/>
+              </svg>
+              <span id="drawer-fullscreen-label">進入全螢幕閱讀</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 1. Text Direction Toggle (文字方向：橫排 / 直排) -->
+        <div>
+          <label class="block font-semibold text-stone-800 mb-2">文字排版方向</label>
+          <div class="grid grid-cols-2 gap-2.5">
+            <button id="dir-horizontal-btn" type="button" class="py-2.5 px-3 rounded-xl border text-center font-medium transition flex items-center justify-center gap-2">
+              <span>橫排閱讀</span>
+              <span class="text-xs opacity-70">(由上而下)</span>
+            </button>
+            <button id="dir-vertical-btn" type="button" class="py-2.5 px-3 rounded-xl border text-center font-medium transition flex items-center justify-center gap-2">
+              <span>直排閱讀</span>
+              <span class="text-xs opacity-70">(由右至左)</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 2. Font Size (字體大小：12px - 36px) -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label for="font-size-slider" class="font-semibold text-stone-800">字體大小</label>
+            <span id="font-size-value" class="text-xs font-semibold px-2 py-0.5 rounded bg-amber-100 text-amber-900">20px</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <button id="font-decrease-btn" type="button" class="w-9 h-9 rounded-lg border border-[#D5CBB4] bg-white hover:bg-stone-100 font-bold text-stone-700 transition" title="縮小字體">A-</button>
+            <input id="font-size-slider" type="range" min="12" max="36" step="1" value="20" class="flex-1 accent-amber-800 cursor-pointer">
+            <button id="font-increase-btn" type="button" class="w-9 h-9 rounded-lg border border-[#D5CBB4] bg-white hover:bg-stone-100 font-bold text-stone-700 transition" title="放大字體">A+</button>
+          </div>
+          <div class="flex justify-between text-[11px] text-stone-400 mt-1">
+            <span>最小 12px</span>
+            <span>預設 20px</span>
+            <span>最大 36px</span>
+          </div>
+        </div>
+
+        <!-- 2B. Page Margin (頁面邊距：12px - 180px) -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label for="margin-slider" class="font-semibold text-stone-800">頁面邊距</label>
+            <span id="margin-value" class="text-xs font-semibold px-2 py-0.5 rounded bg-amber-100 text-amber-900">36px</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <button id="margin-decrease-btn" type="button" class="w-9 h-9 rounded-lg border border-[#D5CBB4] bg-white hover:bg-stone-100 font-bold text-stone-700 transition" title="縮小邊距">-</button>
+            <input id="margin-slider" type="range" min="12" max="180" step="4" value="36" class="flex-1 accent-amber-800 cursor-pointer">
+            <button id="margin-increase-btn" type="button" class="w-9 h-9 rounded-lg border border-[#D5CBB4] bg-white hover:bg-stone-100 font-bold text-stone-700 transition" title="加大邊距">+</button>
+          </div>
+          <div class="flex justify-between text-[11px] text-stone-400 mt-1">
+            <span>窄邊距 12px</span>
+            <span>預設 36px</span>
+            <span>寬邊距 180px</span>
+          </div>
+        </div>
+
+        <!-- 3. Font Family (字型選擇：明體 / 黑體 / 楷體) -->
+        <div>
+          <label class="block font-semibold text-stone-800 mb-2">字型風格</label>
+          <div class="grid grid-cols-3 gap-2">
+            <button type="button" data-font="serif" class="font-option-btn py-2.5 px-2 rounded-xl border text-center transition">
+              <div class="text-sm font-semibold" style="font-family: 'Noto Serif TC', serif;">明體</div>
+              <div class="text-[11px] text-stone-500 mt-0.5">襯線經典</div>
+            </button>
+            <button type="button" data-font="sans" class="font-option-btn py-2.5 px-2 rounded-xl border text-center transition">
+              <div class="text-sm font-semibold" style="font-family: 'Noto Sans TC', sans-serif;">黑體</div>
+              <div class="text-[11px] text-stone-500 mt-0.5">現代清晰</div>
+            </button>
+            <button type="button" data-font="kai" class="font-option-btn py-2.5 px-2 rounded-xl border text-center transition">
+              <div class="text-sm font-semibold" style="font-family: 'LXGW WenKai TC', 'DFKai-SB', 'BiauKai', monospace;">楷體</div>
+              <div class="text-[11px] text-stone-500 mt-0.5">溫潤書法</div>
+            </button>
+          </div>
+        </div>
+
+        <!-- 4. Preset Themes (預設閱讀主題) -->
+        <div>
+          <label class="block font-semibold text-stone-800 mb-2">預設閱讀主題</label>
+          <div id="theme-presets-grid" class="grid grid-cols-1 gap-2">
+            <!-- Populated dynamically with the 5 required themes -->
+          </div>
+        </div>
+
+        <!-- 5. Custom Color Palette (自訂色彩調色盤 HEX) -->
+        <div class="pt-3 border-t border-[#E5DEC9]">
+          <label class="block font-semibold text-stone-800 mb-2.5">自訂色彩調色盤 (HEX)</label>
+          <div class="grid grid-cols-2 gap-3">
+            <div class="p-2.5 rounded-xl border border-[#DCD2BA] bg-white flex items-center justify-between">
+              <div>
+                <div class="text-xs font-medium text-stone-700">文字顏色</div>
+                <div id="custom-text-hex" class="text-[11px] font-mono text-stone-500">#2C241B</div>
+              </div>
+              <input id="custom-text-color" type="color" value="#2C241B" class="w-8 h-8 rounded cursor-pointer border-0 bg-transparent" title="選擇自訂文字顏色">
+            </div>
+            <div class="p-2.5 rounded-xl border border-[#DCD2BA] bg-white flex items-center justify-between">
+              <div>
+                <div class="text-xs font-medium text-stone-700">背景顏色</div>
+                <div id="custom-bg-hex" class="text-[11px] font-mono text-stone-500">#FAF6EE</div>
+              </div>
+              <input id="custom-bg-color" type="color" value="#FAF6EE" class="w-8 h-8 rounded cursor-pointer border-0 bg-transparent" title="選擇自訂背景顏色">
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ==================== DELETE CONFIRMATION MODAL (刪除確認對話框) ==================== -->
+  <div id="delete-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-[1px]" role="dialog" aria-modal="true" aria-labelledby="delete-modal-title">
+    <div class="bg-[#FAF7F0] border border-[#DFD5C0] rounded-2xl max-w-md w-full p-6 shadow-2xl">
+      <div class="flex items-start gap-3.5">
+        <div class="w-10 h-10 rounded-xl bg-red-100 text-red-700 flex items-center justify-center shrink-0">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+          </svg>
+        </div>
+        <div class="flex-1">
+          <h3 id="delete-modal-title" class="serif-title font-bold text-base text-stone-900">確認刪除書籍</h3>
+          <p id="delete-modal-message" class="text-sm text-stone-600 mt-1.5 leading-relaxed">
+            確定要刪除《...》嗎？
+          </p>
+        </div>
+      </div>
+      <div class="mt-6 flex items-center justify-end gap-2.5">
+        <button id="delete-modal-cancel" type="button" class="px-4 py-2 rounded-lg border border-[#D5CBB4] bg-white hover:bg-stone-50 text-stone-700 text-xs sm:text-sm font-medium transition">
+          取消
+        </button>
+        <button id="delete-modal-confirm" type="button" class="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs sm:text-sm font-medium transition shadow-sm">
+          確認刪除
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /********************************************************************
+     * 1. 預設經典範例書籍：《三國演義》（精選前四回完整章節段落）
+     ********************************************************************/
+    const SAMPLE_BOOK_ID = 'sample-sanguo-yanyi-v1';
+    const SAMPLE_BOOK_CONTENT = `第一回 宴桃園豪傑三結義 斬黃巾英雄首立功
+
+話說天下大勢，分久必合，合久必分。週末七國分爭，併入於秦。及秦滅之後，楚、漢分爭，又併入於漢。漢朝自高祖斬白蛇而起義，一統天下，後來光武中興，傳至獻帝，遂分為三國。推其致亂之由，殆始於桓、靈二帝。桓帝禁錮善類，崇信宦官。及桓帝崩，靈帝即位，大將軍竇武、太傅陳蕃共相輔佐。時有宦官曹節等弄權，竇武、陳蕃謀誅之，機事不密，反為所害，中涓自此愈橫。
+
+建寧二年四月望日，帝御溫德殿。方陞座，殿角狂風驟起。只見一條大青蛇，從梁上飛將下來，蟠於椅上。帝驚倒，左右急救入宮，百官俱奔避。須臾，蛇不見了。忽然大雷大雨，加以冰雹，落到半夜方止，壞卻房屋無數。建寧四年二月，洛陽地震；又海水泛溢，沿海居民，盡被大浪捲入海中。光和元年，雌雞化雄。六月朔，黑氣十餘丈，飛入溫德殿中。秋七月，有虹現於玉堂；五原山岸，盡皆崩裂。種種不祥，非止一端。
+
+時巨鹿郡有兄弟三人，一名張角，一名張寶，一名張梁。那張角本是個不第秀才，因入山採藥，遇一老人，碧眼童顏，手執藜杖，喚角至一洞中，以天書三卷授之，曰：「此名《太平要術》，汝得之，當代天宣化，普救世人；若萌異心，必獲惡報。」角拜問姓名。老人曰：「吾乃南華老仙也。」言訖，化陣清風而去。角得此書，曉夜攻習，能呼風喚雨，號為「太平道人」。
+
+中平元年正月內，疫氣流行，張角散施符水，為人治病，自稱「大賢良師」。角有徒弟五百餘人，雲遊四方，皆能書符念咒。次後徒眾日多，角乃立三十六方，大方萬餘人，小方六七千，各立渠帥，稱為將軍；訛言：「蒼天已死，黃天當立；歲在甲子，天下大吉。」令人各以白土書「甲子」二字於家中大門上。青、幽、徐、冀、荊、揚、兗、豫八州之人，家家侍奉大賢良師張角名字。
+
+幽州太守劉焉，乃江夏竟陵人氏，漢魯恭王之後也。當時聞得賊兵將至，召校尉鄒靖計議。靖曰：「賊兵眾，我兵寡，明公宜作速招軍應敵。」劉焉然其說，隨即出榜招義兵。榜文行到涿縣，引出涿縣中一個英雄。那人不甚好讀書；性寬和，寡言語，喜怒不形於色；素有大志，專好結交天下豪傑；生得身長七尺五寸，兩耳垂肩，雙手過膝，目能自顧其耳，面如冠玉，唇若塗脂；中山靖王劉勝之後，漢景帝閣下玄孫，姓劉，名備，字玄德。
+
+當日劉備見了榜文，慨然長嘆。隨後一人厲聲言曰：「大丈夫不與國家出力，何故長嘆？」玄德回視其人，身長八尺，豹頭環眼，燕頷虎鬚，聲若巨雷，勢如奔馬。玄德見他形貌異常，問其姓名。其人曰：「某姓張，名飛，字翼德。世居涿郡，頗有莊田，賣酒屠豬，專好結交天下豪傑。恰纔見公看榜而嘆，故此相問。」玄德曰：「我本漢室宗親，姓劉，名備。今聞黃巾倡亂，有志欲破賊安民，恨力不能，故長嘆耳。」飛曰：「吾頗有資財，當招募鄉勇，與公同舉大事，如何？」玄德甚喜，遂與同入村店中飲酒。
+
+正飲間，見一大漢，推著一輛車子，到店門首歇了，入店坐下，便喚酒保：「快斟酒來吃，我待趕入城去投軍！」玄德看其人：身長九尺，髯長二尺；面如重棗，唇若塗脂；丹鳳眼，臥蠶眉，相貌堂堂，威風凜凜。玄德就邀他同坐，叩其姓名。其人曰：「吾姓關，名羽，字長生，後改雲長，河東解良人也。因本處勢豪倚勢凌人，被吾殺了，逃難江湖，五六年矣。今聞此處招軍破賊，特來應募。」玄德遂以己志告之，雲長大喜。同到張飛莊上，共議大事。
+
+飛曰：「吾莊後有一桃園，花開正盛；明日當於園中祭告天地，我三人結為兄弟，協力同心，然後可圖大事。」玄德、雲長齊聲應曰：「如此甚好。」次日，於桃園中，備下烏牛白馬祭禮等項，三人焚香，再拜而說誓曰：「念劉備、關羽、張飛，雖然異姓，既結為兄弟，則同心協力，救困扶危；上報國家，下安黎庶。不求同年同月同日生，只願同年同月同日死。皇天后土，實鑒此心，背義忘恩，天人共戮！」誓畢，拜玄德為兄，關羽次之，張飛為弟。
+
+第二回 張翼德怒鞭督郵 何國舅謀誅宦豎
+
+且說董卓字仲穎，隴西臨洮人也，官拜河東太守，自來驕傲。當日怠慢了玄德，張飛性發，便欲殺之。玄德與關公急止之曰：「他是朝廷命官，豈可擅殺？」飛曰：「若不殺這廝，反要在他部下聽令，其實不甘！二兄要便住在此，我自投別處去也！」玄德曰：「我三人義同生死，豈可相離？不若都投別處去便了。」飛曰：「若如此，稍解吾恨。」
+
+於是三人連夜引軍來投朱儁。儁待之甚厚，合兵一處，進討張寶。是時曹操自跟皇甫嵩討張梁，大戰於曲陽。這裏朱儁進攻張寶，張寶引賊眾八九萬，屯於山後。儁令玄德為先鋒，與賊對敵。張寶遣副將高昇出馬搦戰，玄德使張飛擊之。飛縱馬挺矛，與昇交戰，不數合，刺昇落馬。玄德麾軍直衝過去。張寶就馬上披髮仗劍，作起妖法。只見風雷大作，一股黑氣從天而降，黑氣中似有無限人馬殺來。玄德連忙回軍，軍中大亂。
+
+朱儁與玄德計議，用豬羊狗血令軍士伏於山頭，候賊趕來，從高坡上潑之。次日，張寶搖旗擂鼓，引軍搦戰，玄德出迎。交鋒之際，張寶作法，風雷大作，飛砂走石，黑氣漫天，滾滾人馬，自天而下。玄德撥馬便走，張寶驅兵趕來。將過山頭，關、張伏軍放起號砲，穢物齊潑。但見空中紙人草馬，紛紛墜地；風雷頓息，砂石不飛。張寶見解了法，急欲退軍。左有關公，右有張飛，兩軍都出，背後玄德、朱儁一齊趕上，賊兵大敗。
+
+後劉備因功授定州中山府安喜縣尉，到任未及四月，朝廷降詔，凡有軍功為長吏者當沙汰。督郵至縣索賄，張飛大怒，睜圓環眼，咬碎鋼牙，滾鞍下馬，逕入館驛，揪住督郵頭髮，扯出館驛，直到縣前馬樁上縛住，攀下柳條，去督郵兩腿上著力鞭打，一連打折柳條十數枝。玄德乃取印綬，掛於督郵之頸，棄官與關、張往代州投劉恢。
+
+第三回 議溫明董卓叱丁原 饋金珠李肅說呂布
+
+卻說何進聽信袁紹之謀，密召外兵入京以誅宦官。主簿陳琳諫曰：「《易》稱『即鹿無虞』，諺有『掩目捕雀』。夫微物尚不可欺以得志，況國之大事，其可以詐立乎？今將軍仗皇威，掌兵要，龍驤虎步，高下在心；若欲誅宦官，如鼓洪爐燎毛髮耳。但當速發雷霆，行權立斷，則天人順之。卻反外檄大臣，臨犯京闕，英雄聚會，各懷一心，所謂倒持干戈，授人以柄，功必不成，反生亂矣。」何進笑曰：「此懦夫之見也！」
+
+董卓既入京師，大權獨攬，欲廢少帝而立陳留王。於溫明園設宴，大會百官，卓按劍宣言曰：「天子為萬民之主，無威儀不可以奉宗廟社稷。今上懦弱，不若陳留王聰明好學，可承大位。吾欲廢帝，立陳留王，諸大臣以為何如？」諸官聽罷，不敢出聲。座上一人推案直出，立於筵前，大呼曰：「不可！不可！汝是何人，敢發大語？天子乃先帝嫡子，初無過失，何得妄議廢立！汝欲為篡逆耶？」卓視之，乃荊州刺史丁原也。
+
+當時李肅獻計於董卓，攜赤兔名馬、黃金一千兩、明珠數十顆、玉帶一條，親往呂布寨中說降。呂布見赤兔馬渾身上下火炭般赤，無半根雜毛，從頭至尾長一丈，從蹄至項高八尺，嘶喊咆哮，有騰空入海之狀，大喜曰：「謝兄賜此龍駒，布當何以報之？」李肅遂以董卓厚意相告，呂布當夜提刀入丁原帳中，斬其首級，次日率眾拜董卓為義父。
+
+第四回 廢漢帝陳留踐位 謀董賊孟德獻刀
+
+董卓既得呂布相助，威震朝廷，遂於九月朔日，請帝升嘉德殿，宣讀策文，廢少帝為弘農王，立陳留王劉協為帝，是為漢獻帝。卓自為相國，入朝不趨，劍履上殿，威福莫比。
+
+司徒王允憂國心切，於府中後園設宴款待舊臣，席間掩面大哭。驍騎校尉曹操撫掌大笑曰：「滿朝公卿，夜哭到明，明哭到夜，還能哭死董卓否？」王允責之，操曰：「操雖不才，願即斷董卓頭，懸之都門，以謝天下！」王允大喜，乃出家藏七寶刀一口，付與曹操。
+
+次日，曹操佩著寶刀，來到相府，見董卓坐於床上，呂布侍立於側。卓問：「孟德來何遲？」操曰：「馬羸行遲耳。」卓顧謂布曰：「吾有西涼進來好馬，奉先可親去選一騎賜與孟德。」布領令而出。操暗忖曰：「此賊合死！」即欲拔刀刺之，懼卓力大，未敢輕動。卓胖大不耐久坐，遂倒身而臥，轉面向內。操又思曰：「此賊當休！」急掣寶刀在手，恰待要刺，不想董卓仰面看衣鏡中，照見曹操在背後拔刀，急回身問曰：「孟德何為？」時呂布已牽馬至閣外。操慌忙跪下曰：「操有寶刀一口，獻上恩相。」卓接視之，見其刀長尺餘，七寶嵌飾，極其鋒利，果寶刀也，遂遞與呂布收了。操解鞘付布，借試馬之名，飛身上馬，望東南逃奔出京。`;
+
+    /********************************************************************
+     * 2. 主題與字型定義 (Preset Themes & Fonts)
+     ********************************************************************/
+    const PRESET_THEMES = [
+      {
+        id: 'warm-gold',
+        name: '暖金白',
+        subtitle: '預設溫潤紙感',
+        bg: '#FAF6EE',
+        text: '#2C241B',
+        border: '#E2D7C1'
+      },
+      {
+        id: 'parchment',
+        name: '羊皮紙',
+        subtitle: '復古暖黃書頁',
+        bg: '#F3E5C8',
+        text: '#382919',
+        border: '#DEC99E'
+      },
+      {
+        id: 'soft-emerald',
+        name: '竹青綠',
+        subtitle: '護眼清爽青綠',
+        bg: '#E3EFE6',
+        text: '#1E3325',
+        border: '#C2DAC8'
+      },
+      {
+        id: 'dark-slate',
+        name: '曜石金',
+        subtitle: '沉穩暗岩金字',
+        bg: '#1F242B',
+        text: '#E4C78F',
+        border: '#343C47'
+      },
+      {
+        id: 'pure-night',
+        name: '極夜黑',
+        subtitle: '純黑深邃夜間',
+        bg: '#0D0E11',
+        text: '#CFCBC2',
+        border: '#24262D'
+      }
+    ];
+
+    const FONT_FAMILIES = {
+      serif: '"Noto Serif TC", "Songti TC", "PMingLiU", serif',
+      sans: '"Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif',
+      kai: '"LXGW WenKai TC", "DFKai-SB", "BiauKai", "Kaiti TC", monospace'
+    };
+
+    /********************************************************************
+     * 3. IndexedDB 儲存引擎（含沙盒記憶體自動備援）
+     ********************************************************************/
+    const DB_NAME = 'TraditionalChineseEbookReaderDB';
+    const DB_VERSION = 1;
+    const STORE_BOOKS = 'books';
+    const STORE_SETTINGS = 'settings';
+
+    class StorageEngine {
+      constructor() {
+        this.db = null;
+        this.memoryBooks = new Map();
+        this.memorySettings = new Map();
+        this.useMemoryFallback = false;
+      }
+
+      async init() {
+        if (!window.indexedDB) {
+          this.useMemoryFallback = true;
+          return;
+        }
+        try {
+          this.db = await new Promise((resolve, reject) => {
+            const req = window.indexedDB.open(DB_NAME, DB_VERSION);
+            req.onupgradeneeded = (e) => {
+              const db = e.target.result;
+              if (!db.objectStoreNames.contains(STORE_BOOKS)) {
+                const store = db.createObjectStore(STORE_BOOKS, { keyPath: 'id' });
+                store.createIndex('importDate', 'importDate', { unique: false });
+              }
+              if (!db.objectStoreNames.contains(STORE_SETTINGS)) {
+                db.createObjectStore(STORE_SETTINGS, { keyPath: 'key' });
+              }
+            };
+            req.onsuccess = (e) => resolve(e.target.result);
+            req.onerror = (e) => reject(e.target.error);
+          });
+        } catch (err) {
+          this.useMemoryFallback = true;
+        }
+      }
+
+      async getAllBooks() {
+        let list;
+        if (this.useMemoryFallback || !this.db) {
+          list = Array.from(this.memoryBooks.values()).sort((a, b) => b.importDate - a.importDate);
+        } else {
+          list = await new Promise((resolve, reject) => {
+            const tx = this.db.transaction(STORE_BOOKS, 'readonly');
+            const store = tx.objectStore(STORE_BOOKS);
+            const req = store.getAll();
+            req.onsuccess = () => {
+              const res = req.result || [];
+              res.sort((a, b) => b.importDate - a.importDate);
+              resolve(res);
+            };
+            req.onerror = () => reject(req.error);
+          });
+        }
+        for (const book of list) {
+          const fastProg = await this.getSetting(`progress_${book.id}`, null);
+          if (fastProg) {
+            book.progress = { ...(book.progress || {}), ...fastProg };
+          }
+        }
+        return list;
+      }
+
+      async getBook(id) {
+        let book;
+        if (this.useMemoryFallback || !this.db) {
+          book = this.memoryBooks.get(id) || null;
+        } else {
+          book = await new Promise((resolve, reject) => {
+            const tx = this.db.transaction(STORE_BOOKS, 'readonly');
+            const req = tx.objectStore(STORE_BOOKS).get(id);
+            req.onsuccess = () => resolve(req.result || null);
+            req.onerror = () => reject(req.error);
+          });
+        }
+        if (book) {
+          const fastProg = await this.getSetting(`progress_${id}`, null);
+          if (fastProg) {
+            book.progress = { ...(book.progress || {}), ...fastProg };
+          }
+          if (book.data === undefined || book.data === null) {
+            const payload = await this.getSetting(`payload_${id}`, null);
+            if (payload !== null) {
+              book = { ...book, data: payload };
+            }
+          }
+        }
+        return book;
+      }
+
+      async saveBook(book) {
+        const { data, ...lightMeta } = book;
+        if (data !== undefined) {
+          await this.saveSetting(`payload_${book.id}`, data);
+        }
+        if (this.useMemoryFallback || !this.db) {
+          this.memoryBooks.set(book.id, lightMeta);
+          return book;
+        }
+        return new Promise((resolve, reject) => {
+          const tx = this.db.transaction(STORE_BOOKS, 'readwrite');
+          const req = tx.objectStore(STORE_BOOKS).put(lightMeta);
+          req.onsuccess = () => resolve(book);
+          req.onerror = () => reject(req.error);
+        });
+      }
+
+      async deleteBook(id) {
+        parsedBookCache.delete(id);
+        await this.saveSetting(`progress_${id}`, null);
+        await this.saveSetting(`payload_${id}`, null);
+        if (this.useMemoryFallback || !this.db) {
+          this.memoryBooks.delete(id);
+          return;
+        }
+        return new Promise((resolve, reject) => {
+          const tx = this.db.transaction(STORE_BOOKS, 'readwrite');
+          const req = tx.objectStore(STORE_BOOKS).delete(id);
+          req.onsuccess = () => resolve();
+          req.onerror = () => reject(req.error);
+        });
+      }
+
+      async deleteBooksBatch(ids) {
+        for (const id of ids) {
+          parsedBookCache.delete(id);
+          await this.saveSetting(`progress_${id}`, null);
+          await this.saveSetting(`payload_${id}`, null);
+        }
+        if (this.useMemoryFallback || !this.db) {
+          ids.forEach((id) => this.memoryBooks.delete(id));
+          return;
+        }
+        return new Promise((resolve, reject) => {
+          const tx = this.db.transaction(STORE_BOOKS, 'readwrite');
+          const store = tx.objectStore(STORE_BOOKS);
+          ids.forEach((id) => store.delete(id));
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        });
+      }
+
+      async updateBookProgress(id, progressData) {
+        // 僅寫入輕量進度紀錄至 settings store，避免每次滾動時重新讀寫數 MB 的完整書籍內容
+        const existing = await this.getSetting(`progress_${id}`, {});
+        const merged = {
+          ...(existing || {}),
+          ...progressData,
+          updatedAt: Date.now()
+        };
+        await this.saveSetting(`progress_${id}`, merged);
+        const memBook = state.books.find((b) => b.id === id);
+        if (memBook) {
+          memBook.progress = { ...(memBook.progress || {}), ...merged };
+        }
+        if (state.currentBook && state.currentBook.id === id) {
+          state.currentBook.progress = { ...(state.currentBook.progress || {}), ...merged };
+        }
+      }
+
+      async getSetting(key, fallbackVal = null) {
+        if (this.useMemoryFallback || !this.db) {
+          return this.memorySettings.has(key) ? this.memorySettings.get(key) : fallbackVal;
+        }
+        return new Promise((resolve) => {
+          const tx = this.db.transaction(STORE_SETTINGS, 'readonly');
+          const req = tx.objectStore(STORE_SETTINGS).get(key);
+          req.onsuccess = () => resolve(req.result ? req.result.value : fallbackVal);
+          req.onerror = () => resolve(fallbackVal);
+        });
+      }
+
+      async saveSetting(key, value) {
+        if (this.useMemoryFallback || !this.db) {
+          this.memorySettings.set(key, value);
+          return;
+        }
+        return new Promise((resolve) => {
+          const tx = this.db.transaction(STORE_SETTINGS, 'readwrite');
+          tx.objectStore(STORE_SETTINGS).put({ key, value });
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => resolve();
+        });
+      }
+    }
+
+    const storage = new StorageEngine();
+
+    /********************************************************************
+     * 4. 應用程式狀態 (Application State)
+     ********************************************************************/
+    const state = {
+      books: [],
+      viewMode: 'grid', // 'grid' | 'list'
+      batchMode: false,
+      selectedBookIds: new Set(),
+      pendingDeleteIds: [],
+      currentBook: null,
+      chapters: [],
+      isPaginatedTxt: false,
+      activeChapterIdx: 0,
+      activeChapterLocalRatio: 0,
+      renderedStartChapter: 0,
+      renderedEndChapter: 0,
+      totalParagraphCount: 0,
+      cachedHeadings: [],
+      isFullscreen: false,
+      epubInstance: null,
+      epubRendition: null,
+      readerSettings: {
+        fontSize: 20,
+        margin: 36,
+        lang: 'tc', // 'tc' (繁體中文) | 'sc' (簡體中文)
+        fontKey: 'serif',
+        themeId: 'warm-gold',
+        textColor: '#2C241B',
+        bgColor: '#FAF6EE',
+        direction: 'horizontal' // 'horizontal' | 'vertical'
+      }
+    };
+
+    const parsedBookCache = new Map();
+
+    /********************************************************************
+     * 4B. 繁體中文 <-> 簡體中文 雙向即時轉換引擎 (TC <-> SC Converter)
+     ********************************************************************/
+    const TC_SC_PAIRS = [
+      '萬万','與与','醜丑','專专','業业','叢丛','東东','絲丝','丟丢','兩两','嚴严','喪丧','個个','豐丰','臨临','為为','麗丽','舉举','麼么','義义',
+      '烏乌','樂乐','喬乔','習习','鄉乡','書书','買买','亂乱','爭争','於于','虧亏','雲云','亙亘','亞亚','產产','畝亩','親亲','褻亵','億亿','僅仅',
+      '從从','侖仑','倉仓','儀仪','們们','價价','眾众','優优','夥伙','會会','傴偻','傘伞','偉伟','傳传','傷伤','倀伥','倫伦','傖怆','偽伪','佇伫',
+      '體体','餘余','傭佣','僉佥','俠侠','侶侣','僥侥','偵侦','側侧','僑侨','儈侩','儕侪','儂侬','儔俦','儼俨','倆俩','儷俪','儉俭','債债','傾倾',
+      '僂偻','僨偾','償偿','儻傥','儐傧','儲储','儺傩','兒儿','兌兑','兗兖','黨党','蘭兰','關关','興兴','茲兹','養养','獸兽','囅冁','內内','岡冈',
+      '冊册','寫写','軍军','農农','塚冢','馮冯','沖冲','決决','況况','凍冻','淨净','淒凄','涼凉','減减','湊凑','凜凛','幾几','鳳凤','鳧凫','憑凭',
+      '凱凯','擊击','鑿凿','芻刍','劃划','劉刘','則则','剛刚','創创','刪删','別别','剄刭','劊刽','劌刿','剴剀','劑剂','剮剐','劍剑','剝剥','劇剧',
+      '勸劝','辦办','務务','勱劢','動动','勵励','勁劲','勞劳','勢势','勳勋','勻匀','匭匦','匱匮','區区','醫医','華华','協协','單单','賣卖','盧卢',
+      '滷卤','臥卧','衛卫','卻却','廠厂','廳厅','歷历','厲厉','壓压','厭厌','厙厍','廁厕','廂厢','厴厣','廈厦','廚厨','廄厩','廝厮','縣县','參参',
+      '雙双','發发','變变','敘叙','疊叠','葉叶','號号','嘆叹','嘰叽','籲吁','後后','嚇吓','呂吕','嗎吗','噸吨','聽听','啟启','吳吴','吶呐','咼呙',
+      '嗆呛','嗇啬','唄呗','員员','嗚呜','噥哝','啞哑','嘵哓','嗶哔','噦哕','嘩哗','噲哙','嚌哜','喲哟','嘜唛','嘮唠','嗩唢','喚唤','問问','嘖啧',
+      '囀啭','嚙啮','囉啰','嘯啸','噴喷','嘍喽','嚳喾','囁嗫','噯嗳','噓嘘','嚶嘤','囑嘱','嚐尝','嚕噜','囂嚣','嚥咽','嚦呖','嚨咙','嚮向','囈呓',
+      '蘇苏','圍围','園园','圓圆','圖图','團团','圇囵','執执','堅坚','壇坛','壩坝','塢坞','墳坟','墜坠','壟垄','壘垒','壞坏','壤壤','壯壮','聲声',
+      '殼壳','壺壶','壽寿','夠够','夢梦','夾夹','奪夺','獎奖','奧奥','妝妆','婦妇','媽妈','嫵妩','嫗妪','娛娱','娄','婭娅','嬋婵','嬌娇','嬸婶',
+      '嬙嫱','嬪嫔','嬰婴','贏赢','學学','孿孪','寶宝','實实','寵宠','審审','憲宪','宮宫','寬宽','賓宾','寢寝','對对','尋寻','導导','將将','爾尔',
+      '塵尘','堯尧','尷尴','屍尸','盡尽','屆届','屬属','屢屡','層层','履履','嶼屿','巔巅','巖岩','帥帅','師师','帳帐','帶带','幀帧','冪幂','幗帼',
+      '幟帜','幣币','幫帮','幹干','並并','廣广','莊庄','慶庆','廟庙','龐庞','廢废','庫库','廡庑','廩廪','廬庐','開开','異异','棄弃','弒弑','張张',
+      '彌弥','彎弯','彈弹','強强','歸归','當当','錄录','彥彦','徹彻','徑径','徠徕','復复','徵征','憶忆','懺忏','愾忾','懷怀','態态','慫怂','憮抚',
+      '慪怄','悵怅','愴怆','憐怜','總总','懟怼','戀恋','懇恳','惡恶','慟恸','懌怿','懔','懲惩','懶懒','懸悬','懼惧','懾慑','戀恋','戈戋','戗',
+      '戰战','戲戏','戶户','拋抛','挾挟','捫扪','掃扫','掄抡','搟擀','折折','撫抚','摳抠','摶抟','損损','撿捡','換换','搗捣','據据','擄掳','擇择',
+      '擊击','擋挡','擠挤','擦擦','擬拟','擯摈','擱搁','擲掷','擴扩','擷撷','擺摆','擻擞','擼撸','擾扰','攄摅','攆撵','攏拢','攔拦','攖撄','攙搀',
+      '撺','攜携','攝摄','攢攒','攣挛','攤摊','攪搅','攬揽','敗败','敘叙','敵敌','數数','斂敛','斃毙','斕斓','斬斩','斷断','旗旗','無无','既既',
+      '時时','晉晋','晝昼','暈晕','暉晖','暢畅','暫暂','暮暮','暴暴','曆历','曉晓','曖暧','曠旷','曲曲','更更','書书','會会','朧胧','木术','朱朱',
+      '朵朵','杉杉','李李','材材','村村','杖杖','杜杜','杞杞','束束','杠杠','條条','來来','楊杨','杭','杯杯','杰傑','東东','松松','板板','極极',
+      '構构','枘枘','枕枕','林林','枚枚','果果','枝枝','樞枢','棗枣','櫪枥','梘枧','棖枨','楓枫','梟枭','櫃柜','檸檬','查查','柬柬','柯柯','柱柱',
+      '柳柳','柴柴','柵栅','標标','棧栈','櫛栉','櫳栊','棟栋','櫨栌','櫟栎','欄栏','樹树','棲栖','樣样','核核','根根','格格','栽栽','桀桀','桁桁',
+      '桂桂','桃桃','框框','案案','桌桌','桎桎','桐桐','桑桑','桓桓','桔桔','樺桦','栳栳','專業','橋桥','機机','橢椭','橫横','檀檀','檔档','檢检',
+      '檣樯','檬檬','檮梼','檯台','檳槟','檸柠','檻槛','櫃柜','櫓橹','櫚榈','櫛栉','櫝椟','櫞橼','櫟栎','櫥橱','櫧槠','櫨栌','櫪枥','櫫橥','櫬榇',
+      '櫳栊','櫸榉','櫻樱','欄栏','權权','欒栾','欖榄','鬱郁','欞棂','欽钦','款款','欺欺','欽钦','歇歇','歉歉','歌歌','歐欧','歡欢','止止','正正',
+      '此此','步步','武武','歧歧','歪歪','歲岁','歷历','歸归','歹歹','死死','歿殁','殀夭','殃殃','殄殄','殆殆','殉殉','殊殊','殘残','殍殍','殞殒',
+      '殮殓','殯殡','殫殚','殲歼','殺杀','殼壳','肴','殿殿','毀毁','毅毅','毆殴','母母','每每','毒毒','比比','毛毛','毫毫','球球','毯毯','氏氏',
+      '民民','氓氓','氣气','氫氢','氬氩','氰氰','水氷','永永','氾泛','汀汀','汁汁','求求','匯汇','漢汉','汗汗','汛汛','汜汜','汝汝','江江','池池',
+      '污污','湯汤','汪汪','汰汰','汲汲','汴汴','決决','汽汽','汾汾','沁沁','沂沂','沃沃','沅沅','沆沆','沈沈','沉沉','沌沌','沏沏','沐沐','沒没',
+      '沓沓','沖冲','沙沙','沚沚','沛沛','溝沟','沒没','瀝沥','淪沦','滄沧','潿涠','滬沪','沫沫','沮沮','河河','沸沸','油油','治治','沼沼','沽沽',
+      '沾沾','沿沿','況况','泄泄','泅泅','泉泉','泊泊','泌泌','泓泓','法法','泖泖','泗泗','泛泛','濘泞','泠泠','泡泡','波波','泣泣','泥泥','注注',
+      '淚泪','泫泫','泮泮','泯泯','泰泰','泱泱','泳泳','泵泵','濼泺','澤泽','涇泾','潔洁','洇洇','溈沩','洋洋','洌洌','灑洒','洗洗','洙','洚洚',
+      '洛洛','洞洞','津津','洧洧','洪洪','洫洫','洮洮','洱洱','洲洲','洳洳','洵洵','洶汹','活活','洼洼','洽洽','派派','流流','浹浃','淺浅','漿浆',
+      '澆浇','湞浈','師师','濁浊','測测','澮浍','濟济','瀏浏','渾浑','滸浒','濃浓','潯浔','濜浕','浚浚','浣浣','浦浦','浩浩','浪浪','浮浮','浴浴',
+      '海海','浸浸','浹浃','浼浼','滌涤','涒涒','潤润','澗涧','漲涨','澀涩','涪涪','涫涫','涮涮','涯涯','液液','涵涵','涸涸','涼凉','涿涿','淀淀',
+      '淄淄','淅淅','淆淆','淇淇','淋淋','淌淌','淑淑','淒凄','淖淖','淘淘','淙淙','淚泪','淞淞','淡淡','淤淤','淦淦','淫淫','淬淬','淮淮','深深',
+      '淳淳','淵渊','混混','清清','淹淹','淺浅','添添','淼淼','清清','淵渊','漬渍','瀆渎','漸渐','漁渔','淵渊','滲渗','渚渚','減减','渝渝','渠渠',
+      '渡渡','渣渣','渤渤','渥渥','渦涡','湝湝','測测','渭渭','港港','渰渰','渴渴','游游','渺渺','渾浑','湃湃','湄湄','湍湍','湎湎','湓湓','湔湔',
+      '湖湖','湘湘','湛湛','湜湜','湝湝','湟湟','湣湣','湧涌','湨','湫湫','湮湮','湯汤','湲湲','溠渣','灣湾','濕湿','潰溃','濺溅','漵溆','漈',
+      '潑泼','潔洁','澆浇','潛潜','潤润','潯浔','潰溃','潭潭','潮潮','潲潲','潶','潸潸','潺潺','潼潼','澀涩','澄澄','澆浇','澇涝','澈澈','澠渑',
+      '澡澡','澤泽','澦澦','澧澧','澱淀','澳澳','澴澴','澶澶','澹澹','激激','濁浊','濂濂','濃浓','澼澼','濕湿','濘泞','濛蒙','濜浕','濟济','濠濠',
+      '濡濡','濤涛','濫滥','濬浚','濮濮','濯濯','濰潍','濱滨','潛潜','濶阔','濺溅','濼泺','濾滤','瀅滢','瀆渎','瀉泻','瀋沈','瀏浏','瀕濒','瀘泸',
+      '瀝沥','瀟潇','潷滗','瀠瀠','潴潴','瀧泷','瀨濑','瀰弥','瀲潋','瀾澜','灃沣','攝摄','灑洒','灘滩','灣湾','灤滦','灧滟','災灾','為为','烏乌',
+      '烈烈','煥焕','烤烤','煩烦','燒烧','燙烫','熱热','燼烬','燈灯','燉炖','燎燎','燐磷','燒烧','燕燕','營营','燥燥','燦灿','燧燧','燬毁','燭烛',
+      '燴烩','煙烟','爛烂','爪爪','爬爬','爭争','爰爰','為为','爵爵','父父','爺爷','爸','爻爻','爽爽','爾尔','牀床','牆墙','片片','版版','牌牌',
+      '牘牍','牙牙','牛牛','牝牝','牟牟','牡牡','牢牢','牤牤','牧牧','物物','牮牮','牯牯','牲牲','牽牵','特特','犧牺','犀犀','犁犁','犢犊','犒犒',
+      '犖荦','犬犬','犯犯','狀状','猶犹','狂狂','狄狄','狈狽','狎狎','狐狐','狗','狙狙','獰狞','狠狠','狡狡','狩狩','獨独','狹狭','獅狮','狯獪',
+      '猙狰','獄狱','猻狲','獵猎','獼猕','獁犸','獎奖','獸兽','獻献','獺獭','玄玄','率率','玉玉','王王','瑋玮','環环','現现','璽玺','璵玙','璐璐',
+      '瓊琼','瓏珑','瓔璎','瓚瓒','瓜瓜','瓢瓢','瓣瓣','瓤瓤','瓦瓦','甕瓮','甌瓯','瓶瓶','瓷瓷','甄甄','甘甘','甚甚','甜甜','生生','產产','甥甥',
+      '甦苏','用用','甩甩','甫甫','甬甬','田田','由由','甲甲','申申','電电','男男','甸甸','町町','畫画','當当','異异','疇畴','疊叠','痙痉','痠酸',
+      '痳淋','痴癡','痺痹','痼痼','痾疴','瘺瘘','瘋疯','瘍疡','瘓痪','瘕瘕','瘞瘗','瘡疮','瘧疟','瘺瘘','療疗','癆痨','癇痫','癉瘅','癒愈','癘疠',
+      '癟瘪','癡痴','癢痒','癤疖','癥症','癧疬','癩癞','癬癣','癭瘿','癮瘾','癰痈','癱瘫','癲癫','發发','白白','百百','皂皂','的的','皆皆','皇皇',
+      '皈皈','皋皋','皎皎','皚皑','皮皮','皺皱','皿皿','盂盂','盅盅','盆盆','盈盈','益益','盍盍','盎盎','盞盏','鹽盐','監监','盒盒','盔盔','蓋盖',
+      '盜盗','盤盘','盛盛','盟盟','盡尽','監监','盤盘','盥盥','盧卢','盪荡','目目','盯盯','盱盱','盲盲','直直','相相','盹盹','盼盼','盾盾','省省',
+      '眄眄','眇眇','眈眈','眉眉','眥眦','看看','真真','眠眠','眢眢','眦眥','眨眨','眩眩','眭眭','眯眯','眶眶','眷眷','眸眸','眺眺','眼眼','眾众',
+      '著着','睜睁','眸眸','睞睐','睡睡','睢睢','督督','睦睦','睨睨','睪睾','睫睫','睬睬','睹睹','睽睽','睾睪','睿睿','瞀瞀','瞄瞄','瞅瞅','瞌瞌',
+      '瞘眍','瞞瞒','瞟瞟','瞠瞠','瞢瞢','瞥瞥','瞧瞧','矚瞩','瞪瞪','瞬瞬','瞰瞰','瞳瞳','瞵瞵','瞻瞻','瞼睑','瞽瞽','瞿瞿','矗矗','矚瞩','矛矛',
+      '矜矜','矢矢','矣矣','知知','矧矧','矩矩','短短','矮矮','矯矫','石石','磯矶','矸矸','矽矽','礬矾','礦矿','碭砀','碼码','砂砂','砩砩','砠砠',
+      '砌砌','砍砍','砑砑','砒砒','研研','磚砖','硨砗','砘砘','硯砚','砜砜','砝砝','砟砟','砣砣','砥砥','砧砧','砭砭','碰','破破','砷砷','砸砸',
+      'Jz','礫砾','礎础','礄桥','礇','礙碍','礦矿','礪砺','礬矾','礱砻','示示','禮礼','社社','祀祀','祁祁','祂他','祧','禱祷','禍祸','稟禀',
+      '禁禁','祿禄','禪禅','禊禊','福福','禡祃','禦御','禧禧','禪禅','禮礼','禰祢','禱祷','禹禹','禺禺','離离','禽禽','禾禾','禿秃','秀秀','私私',
+      '秉秉','秋秋','種种','科科','秒秒','秕秕','秘秘','租租','秣秣','秤秤','秦秦','秧秧','秩秩','秫秫','秈籼','積积','稱称','秸秸','移移','穢秽',
+      '穠秾','稀稀','稂稂','稅税','稈秆','程程','稍稍','稔稔','稗稗','稚稚','稟禀','稠稠','穌稣','穩稳','穎颖','積积','穆穆','穡穑','穗穗','穠秾',
+      '穢秽','穫获','穩稳','穴穴','究究','窮穷','穸穸','穹穹','空空','穿穿','窀窀','突突','竊窃','窄窄','窅窅','窈窈','竅窍','窯窑','窒窒','窕窕',
+      '窖窖','窗窗','窘窘','竄窜','窩窝','窟窟','窠窠','窺窥','竇窦','窨窨','窩窝','窪洼','窬窬','窶','窮穷','窯窑','窳窳','窶','窺窥','窿窿',
+      '竄窜','竅窍','竇窦','竈灶','竊窃','立立','豎竖','站站','競竞','竟竟','章章','竣竣','童童','竦竦','竭竭','端端','競竞','竹竹','竺竺','竽竽',
+      '竿竿','篤笃','笄笄','笆笆','笈笈','笊笊','筍笋','笏笏','笑笑','筆笔','笙笙','笛笛','笞笞','笠笠','笤笤','笥笥','符符','笨笨','第第','笳笳',
+      '笮笮','笱笱','笳笳','箋笺','籠笼','籩笾','筍笋','筏筏','筐筐','筑筑','筒筒','答答','策策','筘筘','蓽筚','篩筛','箏筝','筠筠','筢筢','筧笕',
+      '筮筮','筱筱','箇个','筦','筷筷','籌筹','簽签','簡简','節节','範范','篆篆','篇篇','築筑','篋箧','篁篁','範范','篆篆','篇篇','箱箱','箴箴',
+      '箸箸','節节','範范','篩筛','篡篡','篤笃','篦篦','篩筛','篳筚','簀箦','簍篓','簑蓑','簞箪','簡简','簣篑','簫箫','簷檐','簸簸','簽签','簾帘',
+      '簿簿','籀籀','籃篮','籌筹','籍籍','籐藤','籜箨','籟籁','籠笼','籤签','籩笾','籪簖','籬篱','籮箩','籲吁','米米','籴籴','類类','粁粁','粒粒',
+      '粕粕','粗粗','粘粘','糶粜','糲粝','精精','糊糊','糧粮','糸系','系系','糾纠','紀纪','紂纣','約约','紅红','紆纡','紇纥','紈纨','紉纫','紋纹',
+      '納纳','紐纽','紓纾','純纯','紕纰','紖缗','紗纱','紘纮','紙纸','級级','紛纷','紜纭','紝纴','素素','紡纺','索索','緊紧','紫紫','累累','細细',
+      '紱绂','紲绁','紳绅','紵纻','紹绍','紺绀','紼绋','紽绁','絀绌','終终','絃弦','組组','絅','絆绊','絎绗','結结','絕绝','絛绦','絞绞','絡络',
+      '絢绚','給给','絨绒','絮絮','絰绖','統统','絲丝','絳绛','絹绢','綁绑','綃绡','綆绠','綈绨','綏绥','綑捆','經经','綜综','綞缍','綠绿','綢绸',
+      '綣绻','線线','綬绶','維维','綯绹','綰绾','綱纲','網网','繃绷','綴缀','綵彩','綸纶','綹绺','綺绮','綻绽','綽绰','綾绫','綿绵','緇缁','緊紧',
+      '緋绯','緒绪','緗缃','緘缄','緙缂','線线','緝缉','緞缎','締缔','緡缗','緣缘','緦缌','編编','緩缓','緬缅','緯纬','練练','緻致','緲缈','緼缊',
+      '縈萦','縉缙','縊缢','縋缒','縐绉','縑缣','縛缚','縝缜','縞缟','縟缛','縣县','縫缝','縮缩','縱纵','縲缧','纖纤','縵缦','縶絷','縷缕','縹缥',
+      '總总','績绩','繁繁','繃绷','繅缫','繆缪','繈襁','織织','繕缮','繚缭','繞绕','繡绣','繢缋','繩绳','繪绘','繫系','繭茧','繯缳','繰缲','繳缴',
+      '繹绎','繼继','繽缤','繾缱','纈缬','纊纩','續续','纏缠','纓缨','纖纤','纔才','缵','纜缆','缶缶','缸缸','缺缺','缽钵','罌罂','罄罄','罅罅',
+      '罐罐','網网','罔罔','罕罕','羅罗','罰罚','罷罢','罹罹','羈羁','羊羊','美美','羔羔','羚羚','羝羝','羞羞','群群','羨羡','義义','羹羹','羽羽',
+      '羿羿','翁翁','翅翅','翊翊','翌翌','翎翎','習习','翔翔','翹翘','翟翟','翠翠','翡翡','翥翥','翦剪','翩翩','翫玩','翰翰','翱翱','翳翳','翻翻',
+      '翼翼','耀耀','老老','考考','耄耄','者者','耆耆','而而','耍耍','耐耐','耒耒','耕耕','耖耖','耗耗','耘耘','耙耙','耜耜','耮耢','耳耳','耶耶',
+      '耷耷','聳耸','恥耻','耽耽','耿耿','聶聂','聃聃','聆聆','聊聊','聾聋','職职','聹聍','聯联','聘聘','聚聚','聵聩','聰聪','聲声','聳耸','聽听',
+      '聿聿','肆肆','肅肃','肄肄','肇肇','肉肉','肋肋','肌肌','肓肓','肖肖','肘肘','肚肚','肛肛','肜肜','肝肝','股股','肢肢','肥肥','肩肩','肪肪',
+      '肫肫','肯肯','肱肱','育育','肴肴','肺肺','胃胃','胄胄','膽胆','背背','胎胎','胖胖','胚胚','勝胜','胞胞','胡胡','胤胤','胥胥','朧胧','胴胴',
+      '胭胭','胯胯','胰胰','胱胱','胲胲','胳胳','胴胴','胸胸','能能','脂脂','脅胁','脆脆','脈脉','脊脊','脖脖','脛胫','唇唇','脫脱','脩修','脹胀',
+      '脾脾','腆腆','腈腈','腋腋','腌腌','腎肾','腐腐','腑腑','腓腓','腔腔','腕腕','腥腥','腦脑','腫肿','腮腮','腰腰','腱腱','腳脚','腴腴','腸肠',
+      '腹腹','腺腺','膩腻','靦腼','膃腽','騰腾','腿腿','膀膀','膂膂','膈膈','膊膊','膏膏','膘','膚肤','膛膛','膜膜','膝膝','膠胶','膣膣','膨膨',
+      '膩腻','膳膳','膺膺','膽胆','膾脍','膿脓','臀臀','臂臂','臃臃','臆臆','臉脸','臊臊','臘腊','臚胪','臟脏','臍脐','臏膑','臣臣','臥卧','臧臧',
+      '臨临','自自','臬臬','臭臭','至至','致致','臺台','臻臻','臼臼','臾臾','舀舀','舁舁','舂舂','舅舅','與与','興兴','舉举','舊旧','舌舌','舍舍',
+      '舐舐','舒舒','舔舔','舖铺','舜舜','舞舞','舟舟','船船','艦舰','艙舱','良良','艱艰','色色','艷艳','艸草','藝艺','艾艾','節节','芒芒','蘆芦',
+      '蕪芜','葦苇','蒼苍','蘇苏','蘋苹','范范','莖茎','繭茧','荊荆','薦荐','莢荚','蕘荛','蓽荜','蕎荞','薈荟','薺荠','蕩荡','榮荣','葷荤','滎荥',
+      '犖荦','熒荧','蕁荨','藎荩','蓀荪','蔭荫','荬','紅红','藥药','荷荷','荸荸','荻荻','荼荼','莊庄','莎莎','莒莒','莓莓','莖茎','莛莛','莜莜',
+      '莞莞','莠莠','莢荚','莧苋','莪莪','莫莫','萊莱','蓮莲','蒔莳','萵莴','薟莶','獲获','蕕莸','瑩莹','鶯莺','莽莽','菀菀','菁菁','菅菅','菇菇',
+      '菊菊','菌菌','菏菏','菖菖','菘菘','菜菜','菝菝','菠菠','菡菡','菩菩','華华','菱菱','菲菲','菴庵','菸烟','菹菹','菽菽','萁萁','萃萃','萄萄',
+      '萆萆','萋萋','萌萌','萍萍','萎萎','萏萏','萩萩','萬万','萱萱','萵莴','萸萸','落落','葆葆','葉叶','著着','葛葛','葡葡','董董','葦苇','葩葩',
+      '葫葫','葬葬','葭葭','蔥葱','葳葳','葵葵','葷荤','蒂蒂','葺葺','蔣蒋','蒐搜','蒔莳','蒙蒙','蒜蒜','蒞莅','蒟蒟','蒡蒡','蓄蓄','蒲蒲','蒸蒸',
+      '蒹蒹','蒺蒺','蒼苍','蒿蒿','蓀荪','蓁蓁','蓄蓄','蓆席','蓉蓉','蓊蓊','蓋盖','蓍蓍','蓐蓐','蓑蓑','蓓蓓','蓖蓖','藍蓝','薊蓟','蘺蓠','蒞莅',
+      '苁','夢梦','蓮莲','蓧蓧','蓴莼','蔡蔡','蔣蒋','蔥葱','蔦茑','蔬蔬','蔭荫','陳陈','蕎荞','蕆蒇','蕁荨','Iv','蕘荛','蕙蕙','蕞蕞','蕨蕨',
+      '蕩荡','蕪芜','蕭萧','蕷蓣','蕾蕾','薄薄','薇薇','薈荟','薊蓟','薌芗','薏薏','薑姜','薔蔷','薙薙','薛薛','薜薜','薦荐','薨薨','薩萨','薪薪',
+      '薯薯','薰薰','疇畴','藉藉','藍蓝','藏藏','藐藐','蘚藓','藕藕','藜藜','藝艺','藤藤','藥药','藩藩','藪薮','藹蔼','藺蔺','藻藻','蘆芦','蘇苏',
+      '蘊蕴','蘋苹','蘑蘑','蕲','蘭兰','蘚藓','蘸蘸','蘿萝','虎虎','虜虏','虐虐','慮虑','虔虔','處处','虛虚','虜虏','虞虞','號号','虧亏','蟲虫',
+      '虯虬','蟣虮','虯虬','虱虱','虹虹','虺虺','虻虻','雖虽','蝦虾','蠆虿','蝕蚀','蟻蚁','螞蚂','蚊蚊','蚋蚋','蚌蚌','蚍蚍','蚓蚓','蠶蚕','蚜蚜',
+      '蚝蚝','蚣蚣','蚤蚤','蚧蚧','蚨蚨','蚩蚩','蚪蚪','蜆蚬','蚯蚯','蚰蚰','蚱蚱','蚴蚴','蚵蚵','蚶蚶','蚺蚺','蛀蛀','蛄蛄','蛆蛆','蛇蛇','蛉蛉',
+      '蠱蛊','蛋蛋','蠣蛎','蟶蛏','蛐蛐','蛑蛑','蛔蛔','蠐蛴','蛙蛙','蛛蛛','蛞蛞','蛟蛟','蛤蛤','蛩蛩','蛭蛭','蠻蛮','蟄蛰','蛺蛱','蟯蛲','螄蛳',
+      '蠐蛴','蛸蛸','蛹蛹','蛾蛾','蜀蜀','蜂蜂','蜃蜃','蜇蜇','蜈蜈','蜉蜉','蜊蜊','蜍蜍','蜒蜒','蜻蜻','蝌蝌','蝎蝎','蝟猬','蝠蝠','蝓蝓','蝗蝗',
+      '蝙蝙','鬨哄','衛卫','衝冲','術术','街街','衙衙','衣衣','補补','表表','衫衫','襯衬','袞衮','衰衰','衲衲','衷衷','衽衽','衾衾','衿衿','袁袁',
+      '袂袂','襖袄','裊袅','袈袈','袋袋','袍袍','袒袒','袖袖','袗袗','襪袜','袞衮','袢袢','袤袤','被被','襲袭','袱袱','袷袷','袼袼','裁裁','裂裂',
+      '裝装','襠裆','裡里','裔裔','裕裕','裘裘','裙裙','補补','裝装','裟裟','裡里','製制','裾裾','褂褂','複复','褐褐','褒褒','褓褓','褊褊','禪禅',
+      '褥褥','褪褪','褫褫','褲裤','褶褶','褸缕','褻亵','襁襁','襟襟','襖袄','襪袜','襯衬','襲袭','西西','要要','覆覆','見见','觀观','規规','覓觅',
+      '視视','覘觇','覽览','覺觉','覬觊','覡觋','覿觌','覦觎','觏','覲觐','覷觑','角角','觔斤','觚觚','觜觜','觴觞','解解','觸触','言言','訂订',
+      '訃讣','計计','訊讯','訌讧','討讨','訏讱','訐讦','訓训','訕讪','訖讫','託托','記记','訛讹','訝讶','訟讼','訢欣','訣诀','訥讷','訪访','設设',
+      '許许','訴诉','訶诃','診诊','註注','証证','詁诂','詆诋','詎讵','詐诈','詒诒','詔诏','評评','詖诐','詗诇','詘诎','詛诅','詞词','詠咏','詡诩',
+      '詢询','詣诣','試试','詩诗','詫诧','詬诟','詭诡','詮诠','詰诘','話话','該该','詳详','詵诜','詼诙','詿诖','誅诛','誇夸','認认','誑诳','誕诞',
+      '誘诱','誚诮','語语','誠诚','誡诫','誣诬','誤误','誥诰','誦诵','誨诲','說说','誰谁','課课','誶谇','誹诽','誼谊','調调','諂谄','諄谆','談谈',
+      '諉诿','請请','諍诤','諏诹','誾訚','諒谅','論论','諗谂','諛谀','諜谍','諝谞','諞谝','諡谥','諢诨','諤谔','諦谛','諧谐','諫谏','諭谕','諮咨',
+      '諱讳','諳谙','諶谌','諷讽','諸诸','諺谚','諼谖','諾诺','謀谋','謁谒','謂谓','謄誊','謅诌','謊谎','謎谜','謐谧','謔谑','謖谡','謗谤','謙谦',
+      '謚谥','講讲','謝谢','謠谣','謨谟','謫谪','謬谬','謳讴','謹谨','謾谩','證证','譎谲','譏讥','識识','譙谯','譚谭','譜谱','警警','譫谵','譬譬',
+      '譯译','議议','譴谴','護护','譽誉','讀读','變变','讒谗','讓让','讖谶','讚赞','讜谠','讞谳','谷谷','豆豆','豈岂','豎竖','豐丰','豔艳','豚豚',
+      '象象','豢豢','豪豪','豫豫','豬猪','豭','豺豺','貂貂','貌貌','貓猫','貝贝','貞贞','負负','財财','貢贡','貧贫','貨货','販贩','貪贪','貫贯',
+      '責责','貯贮','貰贳','貲赀','貳贰','貴贵','貶贬','買买','貸贷','貺贶','費费','貼贴','貽贻','貿贸','賀贺','賁贲','賂赂','賃赁','賄贿','賅赅',
+      '資资','賈贾','賊贼','賑赈','賒赊','賓宾','賕赇','賙赒','賚赉','賜赐','賞赏','賠赔','賡赓','賢贤','賣卖','賤贱','賦赋','賧赕','質质','賬账',
+      '賭赌','賴赖','賺赚','賻赙','購购','賽赛','賾赜','贄贽','贅赘','贈赠','贊赞','贋赝','贍赡','贏赢','贐赆','贓赃','贖赎','贛赣','赤赤','赦赦',
+      '赫赫','走走','赳赳','赴赴','趙赵','趕赶','起起','趁趁','超越','越越','趨趋','趲趱','足足','趴趴','趾趾','跃躍','跋跋','跌跌','跑跑','跖跖',
+      '跗跗','跚跚','跛跛','距距','跦跦','跟跟','跡迹','跣跣','跤跤','跨跨','跪跪','跫跫','路路','跳跳','踐践','躋跻','跽跽','踉踉','踊踊','躊踌',
+      '踏踏','踐践','踝踝','踞踞','踟踟','踢踢','踣踣','踩踩','踧','踮踮','踱踱','踴踊','踵踵','踹踹','踰逾','跳舞','蹂蹂','蹄蹄','蹇蹇','蹈蹈',
+      '蹉蹉','蹊蹊','蹋蹋','蹌跄','輾辗','蹙蹙','蹟迹','蹣蹒','蹤踪','蹦蹦','蹩蹩','蹬蹬','蹭蹭','蹯蹯','蹲蹲','蹴蹴','跷','蹼蹼','蹿躥','躁躁',
+      '躅躅','踌','躋跻','躍跃','躑踯','躓踬','躊踌','躋跻','躍跃','躡蹑','躦','躪躏','身身','躬躬','軀躯','車车','軋轧','軌轨','軍军','軔轫',
+      '軒轩','軑轪','軛轭','軟软','軫轸','軸轴','軹轵','軺轺','軻轲','軼轶','軾轼','較较','輅辂','載载','輇辁','輒辄','輓挽','輔辅','輕轻','輛辆',
+      '輜辎','輝辉','輞辋','輟辍','輥辊','輦辇','輩辈','輪轮','輯辑','輳辏','輸输','輻辐','輾辗','輿舆','轄辖','轅辕','轆辘','轉转','轍辙','轎轿',
+      '轔辚','轟轰','轡辔','轢轹','轤轳','辛辛','辜辜','辭辞','辟辟','辣辣','辦办','辨辨','辯辩','辰辰','辱辱','農农','邊边','遼辽','達达','遷迁',
+      '迂迂','迄迄','迅迅','過过','邁迈','迎迎','運运','近近','迓迓','返返','還还','這这','進进','遠远','違违','連连','遲迟','迢迢','迤迤','迥迥',
+      '迦迦','迨迨','邇迩','迪迪','迫迫','迭迭','迮迮','述述','迷迷','迸迸','跡迹','追追','退退','送送','適适','逃逃','逄逄','逅逅','逆逆','選选',
+      '遜逊','逋逋','逍逍','透透','逐逐','逑逑','遞递','途途','逕径','逖逖','逗逗','通通','逛逛','逝逝','逞逞','速速','造造','逡逡','逢逢','連连',
+      '逭逭','逮逮','週周','進进','逵逵','逶逶','逸逸','逼逼','逾逾','遁遁','遂遂','遄遄','遇遇','遊游','運运','遍遍','過过','遏遏','遐遐','遑遑',
+      '遒遒','道道','達达','違违','遘遘','遙遥','遛遛','遜逊','沓','遞递','遠远','遡溯','遣遣','遨遨','適适','遭遭','遮遮','遯遁','遲迟','遴遴',
+      '遵遵','遶绕','遷迁','選选','遺遗','遼辽','遽遽','避避','邀邀','邁迈','邂邂','邃邃','還还','邇迩','邈邈','邊边','邋邋','邏逻','邑邑','鄧邓',
+      '邕邕','邗邗','邘邘','邙邙','邛邛','邠邠','邡邡','邢邢','那那','邦邦','邨村','邪邪','邯邯','邰邰','邱邱','邲邲','邳邳','邴邴','邵邵','邶邶',
+      '邸邸','鄒邹','鄴邺','鄰邻','邽邽','邾邾','郁郁','郇郇','郊郊','郎郎','郐郐','鄭郑','鄆郓','郗郗','郟郏','鄶郐','郭郭','郵邮','鄉乡','鄲郸',
+      '都都','鄂鄂','鄠鄠','鄢鄢','鄣鄣','鄧邓','鄩鄩','鄮鄮','鄯鄯','鄰邻','鄱鄱','鄴邺','鄶郐','鄺邝','酉酉','酊酊','酋酋','酌酌','配配','酎酎',
+      '酏酏','酐酐','酒酒','酗酗','酚酚','醞酝','酞酞','酢酢','酣酣','酤酤','酥酥','酩酩','酪酪','酬酬','酮酮','酯酯','酰酰','醬酱','酲酲','酴酴',
+      '酵酵','酶酶','酷酷','酸酸','酹酹','酺酺','醃腌','醇醇','醉醉','醋醋','醍醍','醐醐','醒醒','醚醚','醛醛','醜丑','醖酝','醫医','醬酱','醮醮',
+      '醯醯','醴醴','醵醵','醺醺','釀酿','釁衅','釃酾','釅釅','采采','釋释','裡里','重重','野野','量量','釐厘','金金','钆','钇','釕钌','釗钊',
+      '釘钉','釙钋','針针','釣钓','釤钐','釦扣','釧钏','釩钒','釵钗','釷钍','釹钕','釺钎','鈍钝','鈔钞','鈞钧','鈉钠','鈐钤','鈑钣','鈸钹','鈕钮',
+      '鈣钙','钚钚','鈦钛','鉅钜','鈍钝','鈔钞','鐘钟','鈉钠','鋇钡','鋼钢','鈑钣','鈐钤','鑰钥','欽钦','鈞钧','鎢钨','鉤钩','鈧钪','鈁钫','钬钬',
+      '鈄钭','鈕钮','鈀钯','鈺钰','錢钱','鉦钲','鉗钳','鈷钴','缽钵','鈳钶','鈸钹','鈽钸','鉞钺','鑽钻','鉬钼','鉭钽','鉀钾','鈿钿','鈾铀','鐵铁',
+      '鉑铂','鈴铃','鑠铄','鉛铅','鉚铆','鉋刨','鉍铋','鈮铌','鈹铍','鐸铎','鉶铏','銬铐','銠铑','鉺铒','銪铕','成','鋏铗','鋣铘','鐃铙','銍铚',
+      '鐺铛','銅铜','鋁铝','銱铞','銦铟','鎧铠','鍘铡','銖铢','銑铣','鋌铤','銩铥','鏵铧','銓铨','鎩铩','鉿铪','銚铫','鉻铬','銘铭','錚铮','銫铯',
+      '鉸铰','銥铱','鏟铲','銃铳','鐋铴','銨铵','銀银','銣铷','鑄铸','鋪铺','鏈链','鋙铻','銷销','鎖锁','鋰锂','鋤锄','鍋锅','鋯锆','鏽锈','銼锉',
+      '鋝锊','鋒锋','鋅锌','鋥锃','鋦锔','鋨锇','芒鋩','鋪铺','銳锐','鋮铖','鋯锆','鋰锂','鋱铽','鋶硫','鋸锯','鋼钢','錁锞','錄录','錆锖','錇锫',
+      '錈锩','錏铔','錐锥','錒锕','錕锟','錘锤','錙锱','錚铮','錛锛','錟锬','錠锭','錡锜','錢钱','錦锦','錨锚','錩锠','錫锡','錮锢','錯错','錄录',
+      '錳锰','錶表','铼铼','錸铼','鍀锝','掀锨','鍁锨','鍃锪','鍆钔','鍇锴','鍈锳','鍋锅','鍍镀','鍔锷','鍘铡','鍛锻','鍠锽','鍬锹','鍤锸','鍥锲',
+      '鍩锘','鍪鍪','鍬锹','鍰锾','鍵键','鍶锶','鍺锗','鍼针','鍾钟','鎂镁','鎄锿','鎇镅','鎊镑','鎌镰','鎏鎏','鎔镕','鎖锁','鎘镉','鎚锤','鎛镈',
+      '鎝锝','鎞镠','鎡镃','鎢钨','鎣蓥','鎦镏','鎧铠','鎩铩','鎪锼','鎬镐','鎮镇','鎰镒','鎲镋','鎳镍','鎵镓','鎸镌','鎿镎','鏃镞','鏇旋','鏈链',
+      '鏌镆','鏍镙','鏐镠','鏑镝','鏗铿','鏘锵','镗镗','鏝镘','鏞镛','鏟铲','鏡镜','鏢镖','鏤镂','鏨錾','鏰镚','鏵铧','鏷镤','鏹镪','鏽锈','鐃铙',
+      '鐋铴','鐐镣','鐒铹','鐓镦','鐔镡','鐘钟','鐙镫','鐝镢',' PR','鐪鐪','鐫镌','鐮镰','鐲镯','鐳镭','鐵铁','鐶镮','鐸铎','鐺铛','鐼镼','鐿镱',
+      '鑄铸','鑊镬','鑌镔','鑑鉴','鑒鉴','镲','鑕锧','鑙','鑛矿','鑠铄','鑣镳','鑥镥','鑪炉','鑰钥','鑲镶','鑷镊','鑹镩','鑼锣','鑽钻','鑾銮',
+      '鑿凿','钁镢','長长','門门','閂闩','閃闪','閆闫','閈闬','閉闭','開开','閌闶','閎闳','閏闰','閑闲','間间','閔闵','閗闦','閘闸','閙闹','閡阂',
+      '関关','閣阁','閤合','閥阀','閨闺','閩闽','閫阃','閬阆','閭闾','閱阅','阊','閹阉','閻阎','閼阏','閽阍','閾阈','閿阌','闃阒','闆板','闇暗',
+      '闈闱','闉阓','闊阔','闋阕','闌阑','闍阇','闐阗','闑阼','闒阘','闓闿','闔阖','闕阙','闖闯','關关','闞阚','闠阓','闡阐','闢辟','闤阛','闥闼',
+      '阜阜','隊队','阡阡','阨阨','阪阪','阮阮','阱阱','防防','陽阳','陰阴','陣阵','階阶','阻阻','阼阼','阽阽','阿阿','陀陀','陂陂','附附','際际',
+      '陸陆','隴陇','陳陈','陘陉','陋陋','陌陌','降降','限限','陔陔','陛陛','陝陕','陞升','陟陟','陡陡','院院','陣阵','除除','陪陪','陧陧','隕陨',
+      '險险','陪陪','陬陬','陲陲','陴陴','陵陵','陶陶','陷陷','陸陆','陽阳','陻堙','隨随','隱隐','隔隔','隕陨','隗隗','隘隘','隙隙','際际','障障',
+      '隧隧','隨随','險险','隱隐','隴陇','隸隶','隻只','隼隼','雋隽','難难','雀雀','雁雁','雄雄','雅雅','集集','雇雇','雉雉','隽','雌雌','雍雍',
+      '雎雎','雛雏','雜杂','雒雒','雕雕','雖虽','雙双','雏','雜杂','雞鸡','離离','難难','雨雨','雩雩','雪雪','雯雯','雲云','靂雳','零零','雷雷',
+      '雹雹','電电','需需','霄霄','霆霆','震震','霉霉','霍霍','霎霎','霏霏','霑沾','霓霓','霖霖','霜霜','霞霞','霧雾','霪霪','靄霭','霰霰','露露',
+      '霸霸','霹霹','霽霁','霾霾','靈灵','霭','靚靓','靜静','非非','靠靠','靡靡','面面','靨靥','革革','靫靫','靭韧','靸靸','靳靳','靴靴','靶靶',
+      '靼靼','靺靺','鞋鞋','鞏巩固','鞍鞍','韃鞑','鞀鼗','鞅鞅','鞦秋','骄','鞠鞠','MC','鞭鞭','響响','頁页','頂顶','頃顷','項项','順顺','頇顸',
+      '須须','頊顼','頌颂','頎颀','頏颃','預预','頑顽','頒颁','頓顿','頔頔','頗颇','領领','頜颌','頡颉','頤颐','頦颏','頭头','頠頠','頰颊','頲颋',
+      '頷颔','頸颈','頹颓','頻频','賴赖','顆颗','題题','額额','顎颚','顏颜','顓颛','願愿','顙颡','顛颠','類类','顢顸','顣顣','顥颢','顧顾','顫颤',
+      '顬顬','顯显','顰颦','顱颅','顳颞','顴颧','風风','颮飑','颯飒','颶飓','颸飔','颼飕','颺飏','搖摇','飄飘','飆飙','飛飞','食食','飢饥','飪饪',
+      '饫','飭饬','飯饭','飲饮','飴饴','飼饲','飽饱','飾饰','餼饻','餃饺','餅饼','餉饷','養养','餌饵','餐餐','餒馁','餓饿','哺','餘余','餚肴',
+      '餛馄','餜馃','餞饯','餡馅','館馆','餬糊','餮餮','餽馈','餾馏','馐','饉馑','饅馒','馓','饌馔','囊','首首','馗馗','香香','馥馥','馨馨',
+      '馬马','馭驭','馮冯','馱驮','馳驰','馴驯','馹驲','駁驳','駐驻','駑驽','駒驹','駔驵','駕驾','駘骀','駙驸','駛驶','駝驼','駟驷','罵骂','駢骈',
+      '駭骇','駱骆','駿骏','騁骋','騅骓','騌','騍骒','騎骑','騏骐','騖骛','騙骗','騤骙','騫骞','騭骘','騮骝','騰腾','騶驺','騷骚','騸骟','騾骡',
+      '驀蓦','驁骜','驂骖','驃骠','驄骢','驅驱','驊骅','驌骕','驍骁','驕骄','驗验','驚惊','驛驿','驟骤','驢驴','驤骧','驥骥','驦骦','驪骊','骨骨',
+      '骯肮','骷骷','骸骸','骼骼','髀髀','髏髅','髖髋','髒脏','髓髓','體体','高高','髟髟','髡髡','髦髦','髮发','髯髯','鬆松','鬍胡','鬚须','鬢鬓',
+      '鬥斗','鬧闹','鬨哄','鬩阋','鬮阄','鬯鬯','鬱郁','鬲鬲','鬻鬻','鬼鬼','魁魁','魂魂','魃魃','魄魄','魅魅','魘魇','魍魍','魎魉','魏魏','魑魑',
+      '魔魔','魚鱼','魯鲁','魴鲂','魷鱿','鮑鲍','鮒鲋','鮭鲑','鮮鲜','鮚鲒','鮪鲔','鮫鲛','鮠鲕','鯀鲧','鯨鲸','鯁鲠','鯇鲩','鯉鲤','鯊鲨','鯔鲻',
+      '鯖鲭','鯗鲞','鯛鲷','鯡鲱','鯢鲵','鯤鲲','鯧鲳','鯰鲇','鯽鲫','鯫鲰','鲢','鰲鳌','鰭鳍','鰥鳏','鰨鳎','鰩鳐','鰭鳍','鰮鳁','鳓','鰵鳘',
+      '鰻鳗','鰾鳔','鱂鳉','鱅鳙','鱈鳕','鱉鳖','鱒鳟','鱔鳝','鱗鳞','鱘鲟','鱠脍','鱧鳢','鱭鲚','鱷鳄','鱸鲈','鳥鸟','鳧凫','鳩鸠','鳳凤','鳴鸣',
+      '鳶鸢','鴆鸩','鴇鸨','鴉鸦','鷗鸥','鴒鸰','鴕鸵','鴛鸳','鴟鸱','鴣鸪','鴦鸯','鴨鸭','鴻鸿','鴿鸽','鴰鸹','鵂鸺','鵑鹃','鵒鹆','鵓鹁','鵜鹈',
+      '鵝鹅','鵠鹄','鵡鹉','鵪鹌','鵬鹏','鵯鹎','鵲鹊','CA','鶉鹑','鹛','鶩鹜','鷂鹞','鶯莺','鶴鹤','鷙鸷','鷓鹧','鷚鹨','鷯鹩','鷲鹫','鷸鹬',
+      '鷹鹰','鷺鹭','鸕鸬','鸚鹦','鸛鹳','鸞鸾','鹵卤','鹹咸','鹺鹾','鹼碱','鹽盐','鹿鹿','麂麂','麋麋','麒麒','麓麓','麗丽','麝麝','麟麟','麥麦',
+      '麩麸','麴曲','麵面','麻麻','麼么','麾麾','黃黄','黌黉','黍黍','黎黎','黏黏','黑黑','黔黔','默','黛黛','黜黜','黝黝','點点','黠黠','黨党',
+      '黯黯','黴霉','黷黩','黻黻','黼黼','鼇鳌','鼉鼍','鼎鼎','鼓鼓','鼕咚','鼠鼠','鼬鼬','鼻鼻','鼾鼾','齊齐','齋斋','齎赍','齏齑','齒齿','齔龀',
+      '齟龃','齙龅','齡龄','齣出','齦龈','齧啮','齪龊','齬龉','齲龋','齶腭','龍龙','龐庞','龔龚','龕龛','龜龟'
+    ];
+
+    const TC_TO_SC_MAP = {};
+    const SC_TO_TC_MAP = {};
+    for (let i = 0; i < TC_SC_PAIRS.length; i++) {
+      const pair = TC_SC_PAIRS[i];
+      if (pair && pair.length === 2 && pair[0] !== pair[1]) {
+        const tc = pair[0];
+        const sc = pair[1];
+        if (!TC_TO_SC_MAP[tc]) TC_TO_SC_MAP[tc] = sc;
+        if (!SC_TO_TC_MAP[sc]) SC_TO_TC_MAP[sc] = tc;
+      }
+    }
+
+    function convertChineseText(text, targetLang) {
+      if (!text) return '';
+      const mode = targetLang || (state.readerSettings && state.readerSettings.lang) || 'tc';
+      const map = mode === 'sc' ? TC_TO_SC_MAP : SC_TO_TC_MAP;
+      let out = '';
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        out += map[ch] || ch;
+      }
+      return out;
+    }
+
+    function convertUiDomTree(rootEl, targetLang) {
+      if (!rootEl) return;
+      const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT, null);
+      let node;
+      while ((node = walker.nextNode())) {
+        const parentTag = node.parentElement ? node.parentElement.tagName : '';
+        if (parentTag === 'SCRIPT' || parentTag === 'STYLE') continue;
+        // Skip dynamic language badge if needed, or convert everything cleanly
+        if (node.parentElement && node.parentElement.id === 'library-lang-badge') continue;
+        if (node.nodeValue && node.nodeValue.trim()) {
+          node.nodeValue = convertChineseText(node.nodeValue, targetLang);
+        }
+      }
+      rootEl.querySelectorAll('[title],[aria-label]').forEach((el) => {
+        if (el.hasAttribute('title')) {
+          el.setAttribute('title', convertChineseText(el.getAttribute('title'), targetLang));
+        }
+        if (el.hasAttribute('aria-label')) {
+          el.setAttribute('aria-label', convertChineseText(el.getAttribute('aria-label'), targetLang));
+        }
+      });
+    }
+
+    /********************************************************************
+     * 5. 章節解析與文字處理工具 (.TXT Chapter Regex Parser)
+     ********************************************************************/
+    // 支援「第[0-9一二三四五六七八九十百千萬]+[章回卷節部]」章節格式（相容繁簡章節字元）
+    const CHAPTER_LINE_REGEX = /^\s*(第[0-9一二三四五六七八九十百千萬万零〇兩两]+[章回卷節节部][^\r\n]{0,45})\s*$/;
+    const MAX_PARAGRAPHS_PER_CHAPTER_VIEW = 220;
+
+    function parseTxtChaptersAndParagraphs(rawText, cacheKey = null) {
+      if (cacheKey && parsedBookCache.has(cacheKey)) {
+        return parsedBookCache.get(cacheKey);
+      }
+
+      const text = rawText || '';
+      const len = text.length;
+      const rawChapters = [];
+
+      let pos = 0;
+      while (pos < len) {
+        let nextNl = text.indexOf('\n', pos);
+        if (nextNl === -1) nextNl = len;
+
+        let line = text.slice(pos, nextNl);
+        if (line.endsWith('\r')) {
+          line = line.slice(0, -1);
+        }
+        pos = nextNl + 1;
+
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        // 僅對長度合理的行執行正則匹配，避免長段落耗費 CPU
+        const match = trimmed.length <= 60 ? trimmed.match(CHAPTER_LINE_REGEX) : null;
+        if (match) {
+          const title = match[1].trim();
+          rawChapters.push({
+            title,
+            paragraphs: []
+          });
+        } else {
+          if (rawChapters.length === 0) {
+            rawChapters.push({
+              title: '開篇導讀',
+              paragraphs: []
+            });
+          }
+          rawChapters[rawChapters.length - 1].paragraphs.push(trimmed);
+        }
+      }
+
+      // 若單一章節段落過長（例如無章節標記的巨型 TXT 檔），自動切分為舒適長度的章節分段，避免 DOM 節點過多造成卡頓
+      const chapters = [];
+      const blocks = [];
+      let totalParagraphs = 0;
+
+      for (let i = 0; i < rawChapters.length; i++) {
+        const rc = rawChapters[i];
+        const paras = rc.paragraphs;
+
+        if (paras.length <= MAX_PARAGRAPHS_PER_CHAPTER_VIEW) {
+          const idx = chapters.length;
+          const anchorId = `chapter-anchor-${idx}`;
+          chapters.push({
+            index: idx,
+            title: rc.title,
+            anchorId,
+            paragraphs: paras,
+            startOffset: totalParagraphs
+          });
+          totalParagraphs += Math.max(1, paras.length);
+        } else {
+          const totalParts = Math.ceil(paras.length / MAX_PARAGRAPHS_PER_CHAPTER_VIEW);
+          for (let p = 0; p < totalParts; p++) {
+            const slice = paras.slice(p * MAX_PARAGRAPHS_PER_CHAPTER_VIEW, (p + 1) * MAX_PARAGRAPHS_PER_CHAPTER_VIEW);
+            const idx = chapters.length;
+            const anchorId = `chapter-anchor-${idx}`;
+            const partTitle = totalParts > 1 ? `${rc.title}（${p + 1}/${totalParts}）` : rc.title;
+            chapters.push({
+              index: idx,
+              title: partTitle,
+              anchorId,
+              paragraphs: slice,
+              startOffset: totalParagraphs
+            });
+            totalParagraphs += slice.length;
+          }
+        }
+      }
+
+      // 僅在總段落數較少時建立全量 blocks 陣列，大型小說採單章節按需渲染
+      const isPaginated = totalParagraphs > 320;
+      if (!isPaginated) {
+        for (let i = 0; i < chapters.length; i++) {
+          const ch = chapters[i];
+          blocks.push({
+            type: 'heading',
+            text: ch.title,
+            anchorId: ch.anchorId,
+            chapterIndex: i
+          });
+          for (let j = 0; j < ch.paragraphs.length; j++) {
+            blocks.push({
+              type: 'paragraph',
+              text: ch.paragraphs[j],
+              chapterIndex: i
+            });
+          }
+        }
+      }
+
+      const result = { chapters, blocks, totalParagraphs, isPaginated };
+      if (cacheKey) {
+        if (parsedBookCache.size >= 8) {
+          const oldestKey = parsedBookCache.keys().next().value;
+          parsedBookCache.delete(oldestKey);
+        }
+        parsedBookCache.set(cacheKey, result);
+      }
+      return result;
+    }
+
+    function formatFileSize(bytes) {
+      if (!bytes || bytes < 1024) return `${bytes || 0} B`;
+      const kb = bytes / 1024;
+      if (kb < 1024) return `${kb.toFixed(1)} KB`;
+      return `${(kb / 1024).toFixed(2)} MB`;
+    }
+
+    function formatDateTW(timestamp) {
+      const d = new Date(timestamp || Date.now());
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}/${m}/${day}`;
+    }
+
+    function escapeHtml(str) {
+      return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    /********************************************************************
+     * 6. 預設範例書籍初始化
+     ********************************************************************/
+    async function ensureSampleBookLoaded(forceRestore = false) {
+      const initialized = await storage.getSetting('sampleInitialized', false);
+      const existingBooks = await storage.getAllBooks();
+
+      if (forceRestore || (!initialized && existingBooks.length === 0)) {
+        const byteSize = new Blob([SAMPLE_BOOK_CONTENT]).size;
+        const sampleBook = {
+          id: SAMPLE_BOOK_ID,
+          title: '三國演義（精選前四回）',
+          author: '羅貫中 著（內建經典範例）',
+          format: 'txt',
+          size: byteSize,
+          importDate: Date.now(),
+          isSample: true,
+          data: SAMPLE_BOOK_CONTENT,
+          progress: {
+            percentage: 0,
+            scrollRatio: 0,
+            chapterTitle: '第一回 宴桃園豪傑三結義 斬黃巾英雄首立功'
+          }
+        };
+        await storage.saveBook(sampleBook);
+        await storage.saveSetting('sampleInitialized', true);
+      }
+    }
+
+    /********************************************************************
+     * 7. 書庫畫面渲染與管理 (Library View Rendering & Actions)
+     ********************************************************************/
+    async function refreshLibrary() {
+      state.books = await storage.getAllBooks();
+      renderLibraryView();
+    }
+
+    function renderLibraryView() {
+      const container = document.getElementById('books-container');
+      const emptyState = document.getElementById('empty-library-state');
+      const gridBtn = document.getElementById('view-grid-btn');
+      const listBtn = document.getElementById('view-list-btn');
+      const batchBar = document.getElementById('batch-action-bar');
+      const batchModeLabel = document.getElementById('batch-mode-label');
+
+      // Update view toggle buttons
+      if (state.viewMode === 'grid') {
+        gridBtn.className = 'px-2.5 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition bg-white text-stone-900 shadow-sm';
+        listBtn.className = 'px-2.5 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition text-stone-600 hover:text-stone-900';
+      } else {
+        listBtn.className = 'px-2.5 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition bg-white text-stone-900 shadow-sm';
+        gridBtn.className = 'px-2.5 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition text-stone-600 hover:text-stone-900';
+      }
+
+      // Update batch mode bar
+      if (state.batchMode) {
+        batchBar.classList.remove('hidden');
+        batchModeLabel.textContent = '退出批量管理';
+      } else {
+        batchBar.classList.add('hidden');
+        batchModeLabel.textContent = '批量管理';
+      }
+      updateBatchStatusUI();
+
+      if (state.books.length === 0) {
+        container.innerHTML = '';
+        emptyState.classList.remove('hidden');
+        convertUiDomTree(document.getElementById('library-view'), state.readerSettings.lang);
+        return;
+      }
+
+      emptyState.classList.add('hidden');
+
+      if (state.viewMode === 'grid') {
+        container.className = 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5';
+        container.innerHTML = state.books.map((book) => renderGridBookCard(book)).join('');
+      } else {
+        container.className = 'space-y-3';
+        container.innerHTML = state.books.map((book) => renderListBookRow(book)).join('');
+      }
+
+      convertUiDomTree(document.getElementById('library-view'), state.readerSettings.lang);
+      attachBookCardEvents();
+    }
+
+    function renderGridBookCard(book) {
+      const lang = state.readerSettings.lang || 'tc';
+      const isSelected = state.selectedBookIds.has(book.id);
+      const pct = book.progress && typeof book.progress.percentage === 'number'
+        ? Math.min(100, Math.max(0, Math.round(book.progress.percentage)))
+        : 0;
+      const formatBadge = (book.format || 'txt').toUpperCase();
+      const rawHint = (book.progress && book.progress.chapterTitle) ? book.progress.chapterTitle : '尚未開始閱讀';
+      const chapterHint = convertChineseText(rawHint, lang);
+      const displayTitle = convertChineseText(book.title, lang);
+      const displayAuthor = convertChineseText(book.author || '佚名', lang);
+
+      return `
+        <div data-book-id="${escapeHtml(book.id)}" class="book-card group relative rounded-2xl border ${isSelected ? 'border-amber-700 ring-2 ring-amber-700/30 bg-[#FDF9F0]' : 'border-[#E2D9C5] bg-white hover:border-amber-700/60'} shadow-sm hover:shadow-md transition-all flex flex-col overflow-hidden cursor-pointer">
+          <!-- Top Cover Banner -->
+          <div class="h-36 px-5 py-4 bg-gradient-to-br from-[#F4EBDC] via-[#EFE3CE] to-[#E5D4B7] border-b border-[#E5DEC9] flex flex-col justify-between relative">
+            <div class="flex items-center justify-between gap-2">
+              <span class="px-2 py-0.5 rounded text-[11px] font-bold tracking-wider uppercase ${book.format === 'epub' ? 'bg-emerald-900/85 text-emerald-50' : 'bg-amber-900/85 text-amber-50'}">
+                ${escapeHtml(formatBadge)}
+              </span>
+              ${book.isSample ? '<span class="px-2 py-0.5 rounded text-[11px] font-medium bg-amber-800/15 text-amber-950">內建範例</span>' : ''}
+            </div>
+
+            <div class="my-auto">
+              <h3 class="serif-title font-bold text-lg text-stone-900 line-clamp-2 leading-snug">${escapeHtml(displayTitle)}</h3>
+              <p class="text-xs text-stone-600 mt-1 truncate">${escapeHtml(displayAuthor)}</p>
+            </div>
+
+            <!-- Batch Checkbox OR Hover Single Trash Button -->
+            ${state.batchMode ? `
+              <div class="absolute top-3 right-3 z-10">
+                <input type="checkbox" data-batch-check="${escapeHtml(book.id)}" ${isSelected ? 'checked' : ''} class="w-5 h-5 rounded border-stone-400 text-amber-800 focus:ring-amber-600 cursor-pointer" aria-label="選取《${escapeHtml(displayTitle)}》">
+              </div>
+            ` : `
+              <button type="button" data-single-delete="${escapeHtml(book.id)}" class="single-delete-btn absolute top-3 right-3 z-10 w-8 h-8 rounded-lg bg-white/90 hover:bg-red-600 text-stone-600 hover:text-white shadow-sm flex items-center justify-center transition" title="刪除《${escapeHtml(displayTitle)}》">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>
+                </svg>
+              </button>
+            `}
+          </div>
+
+          <!-- Card Metadata Footer -->
+          <div class="p-4 flex-1 flex flex-col justify-between space-y-3">
+            <div>
+              <div class="flex items-center justify-between text-xs text-stone-500 mb-1">
+                <span>閱讀進度</span>
+                <span class="font-semibold text-amber-900">${pct}%</span>
+              </div>
+              <div class="w-full h-1.5 rounded-full bg-stone-200 overflow-hidden">
+                <div class="h-full bg-amber-800 rounded-full transition-all" style="width: ${pct}%"></div>
+              </div>
+              <p class="text-[11px] text-stone-500 mt-2 truncate" title="${escapeHtml(chapterHint)}">${escapeHtml(chapterHint)}</p>
+            </div>
+
+            <div class="pt-2 border-t border-stone-100 flex items-center justify-between text-[11px] text-stone-400">
+              <span>檔案大小：${formatFileSize(book.size)}</span>
+              <span>匯入：${formatDateTW(book.importDate)}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderListBookRow(book) {
+      const lang = state.readerSettings.lang || 'tc';
+      const isSelected = state.selectedBookIds.has(book.id);
+      const pct = book.progress && typeof book.progress.percentage === 'number'
+        ? Math.min(100, Math.max(0, Math.round(book.progress.percentage)))
+        : 0;
+      const formatBadge = (book.format || 'txt').toUpperCase();
+      const rawHint = (book.progress && book.progress.chapterTitle) ? book.progress.chapterTitle : '尚未開始閱讀';
+      const chapterHint = convertChineseText(rawHint, lang);
+      const displayTitle = convertChineseText(book.title, lang);
+      const displayAuthor = convertChineseText(book.author || '佚名', lang);
+
+      return `
+        <div data-book-id="${escapeHtml(book.id)}" class="book-card group rounded-xl border ${isSelected ? 'border-amber-700 ring-2 ring-amber-700/30 bg-[#FDF9F0]' : 'border-[#E2D9C5] bg-white hover:border-amber-700/60'} p-4 shadow-sm hover:shadow transition flex items-center justify-between gap-4 cursor-pointer">
+          <div class="flex items-center gap-3.5 min-w-0 flex-1">
+            ${state.batchMode ? `
+              <input type="checkbox" data-batch-check="${escapeHtml(book.id)}" ${isSelected ? 'checked' : ''} class="w-5 h-5 rounded border-stone-400 text-amber-800 focus:ring-amber-600 cursor-pointer shrink-0" aria-label="選取《${escapeHtml(displayTitle)}》">
+            ` : ''}
+            <div class="w-11 h-14 rounded-lg bg-gradient-to-b from-[#EFE3CE] to-[#DEC9A6] border border-[#D5C3A3] flex items-center justify-center shrink-0">
+              <span class="text-[10px] font-bold uppercase text-amber-950">${escapeHtml(formatBadge)}</span>
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <h3 class="serif-title font-bold text-base text-stone-900 truncate">${escapeHtml(displayTitle)}</h3>
+                ${book.isSample ? '<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-800/15 text-amber-950">內建範例</span>' : ''}
+              </div>
+              <p class="text-xs text-stone-500 mt-0.5 truncate">
+                作者：${escapeHtml(displayAuthor)} · 章節：${escapeHtml(chapterHint)}
+              </p>
+              <div class="flex items-center gap-4 text-[11px] text-stone-400 mt-1">
+                <span>大小：${formatFileSize(book.size)}</span>
+                <span>匯入日期：${formatDateTW(book.importDate)}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-4 shrink-0">
+            <div class="hidden sm:flex flex-col items-end w-28">
+              <span class="text-xs font-semibold text-amber-900">進度 ${pct}%</span>
+              <div class="w-full h-1.5 rounded-full bg-stone-200 mt-1 overflow-hidden">
+                <div class="h-full bg-amber-800 rounded-full" style="width: ${pct}%"></div>
+              </div>
+            </div>
+
+            ${!state.batchMode ? `
+              <button type="button" data-single-delete="${escapeHtml(book.id)}" class="single-delete-btn w-9 h-9 rounded-lg border border-stone-200 bg-stone-50 hover:bg-red-600 text-stone-600 hover:text-white flex items-center justify-center transition" title="刪除《${escapeHtml(displayTitle)}》">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>
+                </svg>
+              </button>
+            ` : ''}
+          </div>
+        </div>
+      `;
+    }
+
+    function attachBookCardEvents() {
+      // Single delete buttons
+      document.querySelectorAll('[data-single-delete]').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const bookId = btn.getAttribute('data-single-delete');
+          openDeleteConfirmation([bookId]);
+        });
+      });
+
+      // Batch checkboxes
+      document.querySelectorAll('[data-batch-check]').forEach((checkbox) => {
+        checkbox.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const bookId = checkbox.getAttribute('data-batch-check');
+          toggleBookSelection(bookId);
+        });
+      });
+
+      // Card clicks
+      document.querySelectorAll('.book-card').forEach((card) => {
+        card.addEventListener('click', () => {
+          const bookId = card.getAttribute('data-book-id');
+          if (state.batchMode) {
+            toggleBookSelection(bookId);
+          } else {
+            openBookInReader(bookId);
+          }
+        });
+      });
+    }
+
+    function toggleBookSelection(bookId) {
+      if (state.selectedBookIds.has(bookId)) {
+        state.selectedBookIds.delete(bookId);
+      } else {
+        state.selectedBookIds.add(bookId);
+      }
+      renderLibraryView();
+    }
+
+    function updateBatchStatusUI() {
+      const count = state.selectedBookIds.size;
+      const statusEl = document.getElementById('batch-selected-status');
+      const deleteBtn = document.getElementById('batch-delete-btn');
+      const selectAllCheckbox = document.getElementById('batch-select-all');
+
+      statusEl.textContent = `已選取 ${count} 本書籍`;
+      deleteBtn.disabled = count === 0;
+      selectAllCheckbox.checked = state.books.length > 0 && count === state.books.length;
+    }
+
+    /********************************************************************
+     * 8. 刪除確認對話框 (Single & Batch Confirmation Modal)
+     ********************************************************************/
+    function openDeleteConfirmation(bookIds) {
+      if (!bookIds || bookIds.length === 0) return;
+      state.pendingDeleteIds = bookIds;
+      const modal = document.getElementById('delete-modal');
+      const msgEl = document.getElementById('delete-modal-message');
+
+      if (bookIds.length === 1) {
+        const book = state.books.find((b) => b.id === bookIds[0]);
+        const title = book ? book.title : '此書籍';
+        msgEl.textContent = `確定要刪除《${title}》嗎？刪除後將從本機資料庫移除且無法復原。`;
+      } else {
+        const firstBook = state.books.find((b) => b.id === bookIds[0]);
+        const firstTitle = firstBook ? firstBook.title : '已選書籍';
+        msgEl.textContent = `確定要刪除《${firstTitle}》等共 ${bookIds.length} 本書籍嗎？刪除後將從本機資料庫移除且無法復原。`;
+      }
+
+      modal.classList.remove('hidden');
+    }
+
+    function closeDeleteConfirmation() {
+      state.pendingDeleteIds = [];
+      document.getElementById('delete-modal').classList.add('hidden');
+    }
+
+    async function confirmDeleteBooks() {
+      const ids = [...state.pendingDeleteIds];
+      if (ids.length === 0) return;
+
+      if (ids.length === 1) {
+        await storage.deleteBook(ids[0]);
+      } else {
+        await storage.deleteBooksBatch(ids);
+      }
+
+      ids.forEach((id) => state.selectedBookIds.delete(id));
+      closeDeleteConfirmation();
+      await refreshLibrary();
+    }
+
+    /********************************************************************
+     * 9. 檔案匯入處理 (.TXT 與 .EPUB File Upload & Drag-and-Drop)
+     ********************************************************************/
+    function showLibraryAlert(message) {
+      const box = document.getElementById('library-alert');
+      const text = document.getElementById('library-alert-text');
+      text.textContent = message;
+      box.classList.remove('hidden');
+    }
+
+    async function handleFilesImport(fileList) {
+      if (!fileList || fileList.length === 0) return;
+      const files = Array.from(fileList);
+
+      for (const file of files) {
+        const lowerName = file.name.toLowerCase();
+        const isTxt = lowerName.endsWith('.txt');
+        const isEpub = lowerName.endsWith('.epub');
+
+        if (!isTxt && !isEpub) {
+          showLibraryAlert(`不支援的檔案格式：「${file.name}」。請匯入 .txt 或 .epub 格式檔案。`);
+          continue;
+        }
+
+        const cleanTitle = file.name.replace(/\.(txt|epub)$/i, '');
+        const bookId = `book-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+        try {
+          if (isTxt) {
+            const textContent = await readFileAsTextSmart(file);
+            // 僅取前段文字快速偵測首章標題，避免匯入大型小說時同步解析全書造成卡頓
+            const headSnippet = textContent.slice(0, 6000);
+            const headParsed = parseTxtChaptersAndParagraphs(headSnippet);
+            const firstChapterTitle = headParsed.chapters[0] ? headParsed.chapters[0].title : '開篇導讀';
+
+            const newBook = {
+              id: bookId,
+              title: cleanTitle,
+              author: '本機匯入 (TXT)',
+              format: 'txt',
+              size: file.size,
+              importDate: Date.now(),
+              isSample: false,
+              data: textContent,
+              progress: {
+                percentage: 0,
+                scrollRatio: 0,
+                chapterIndex: 0,
+                chapterScrollRatio: 0,
+                chapterTitle: firstChapterTitle
+              }
+            };
+            await storage.saveBook(newBook);
+          } else if (isEpub) {
+            const arrayBuffer = await readFileAsArrayBuffer(file);
+            let authorName = 'EPUB 電子書';
+            let extractedTitle = cleanTitle;
+
+            // 嘗試使用 ePub.js 讀取元資料
+            if (window.ePub) {
+              try {
+                const tempBook = window.ePub(arrayBuffer.slice(0));
+                const meta = await tempBook.loaded.metadata;
+                if (meta && meta.title) extractedTitle = meta.title;
+                if (meta && meta.creator) authorName = meta.creator;
+                if (tempBook.destroy) tempBook.destroy();
+              } catch (_) {
+                // 使用檔名作為後備標題
+              }
+            }
+
+            const newBook = {
+              id: bookId,
+              title: extractedTitle,
+              author: authorName,
+              format: 'epub',
+              size: file.size,
+              importDate: Date.now(),
+              isSample: false,
+              data: arrayBuffer,
+              progress: {
+                percentage: 0,
+                cfi: null,
+                chapterTitle: 'EPUB 第一章'
+              }
+            };
+            await storage.saveBook(newBook);
+          }
+        } catch (err) {
+          showLibraryAlert(`匯入「${file.name}」時發生錯誤，請確認檔案未損毀。`);
+        }
+      }
+
+      await refreshLibrary();
+    }
+
+    function readFileAsArrayBuffer(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsArrayBuffer(file);
+      });
+    }
+
+    function scoreDecodedChineseText(text) {
+      if (!text) return -Infinity;
+      const sample = text.slice(0, 12000);
+      // 常用繁簡中文核心高頻字與標點（GBK 與 Big5 的高頻字位元組完全不重疊，可精準區分）
+      const commonMatches = sample.match(/[的一是不了人我在有他这這為为之大来來以個个中上们們到说說国國和地也子時时道出而要于於就下得可你年生自会會那后後能对着著事其里裏所去行过過家十用发發天如然作方成者多日都三小军軍二无無同么麼经經法当當起与與好看学學进進种種将將还還分此心前面又定见見只主没沒公从從知己本章回卷節节部，。！？：「」『』、“”‘’；（）《》]/g);
+      const commonCount = commonMatches ? commonMatches.length : 0;
+
+      // 替換字元 (U+FFFD) 與異常控制字元重度扣分
+      const replacementMatches = sample.match(/\uFFFD/g);
+      const replacementCount = replacementMatches ? replacementMatches.length : 0;
+
+      // Big5 誤讀為 GBK 時常出現日文假名區段 (U+3040..U+30FF)，予以扣分
+      const kanaMatches = sample.match(/[\u3040-\u30FF]/g);
+      const kanaCount = kanaMatches ? kanaMatches.length : 0;
+
+      // 罕見私用區或控制碼扣分
+      const weirdMatches = sample.match(/[\uE000-\uF8FF\u0000-\u0008\u000E-\u001F]/g);
+      const weirdCount = weirdMatches ? weirdMatches.length : 0;
+
+      return (commonCount * 4) - (replacementCount * 25) - (kanaCount * 6) - (weirdCount * 15);
+    }
+
+    async function readFileAsTextSmart(file) {
+      const buffer = await readFileAsArrayBuffer(file);
+      const bytes = new Uint8Array(buffer);
+
+      // 1. 檢查 BOM (Byte Order Mark)
+      if (bytes.length >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) {
+        return new TextDecoder('utf-8').decode(buffer);
+      }
+      if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE) {
+        return new TextDecoder('utf-16le').decode(buffer);
+      }
+      if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF) {
+        return new TextDecoder('utf-16be').decode(buffer);
+      }
+
+      // 2. 優先嘗試嚴格 UTF-8 解碼
+      try {
+        const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
+        return utf8Decoder.decode(buffer);
+      } catch (_) {
+        // 非 UTF-8 編碼，進入 GB18030 (相容 GBK / GB2312) 與 Big5 智慧判別
+      }
+
+      // 3. 比較 GB18030/GBK 與 Big5 解碼品質，避免將簡體 GBK 誤以 Big5 讀取產生亂碼
+      const sampleBuffer = buffer.slice(0, Math.min(buffer.byteLength, 32768));
+      let gbkSample = '';
+      let big5Sample = '';
+      let gbkFatalOk = false;
+      let big5FatalOk = false;
+
+      try {
+        gbkSample = new TextDecoder('gb18030', { fatal: true }).decode(sampleBuffer);
+        gbkFatalOk = true;
+      } catch (_) {
+        try {
+          gbkSample = new TextDecoder('gb18030').decode(sampleBuffer);
+        } catch (__) {}
+      }
+
+      try {
+        big5Sample = new TextDecoder('big5', { fatal: true }).decode(sampleBuffer);
+        big5FatalOk = true;
+      } catch (_) {
+        try {
+          big5Sample = new TextDecoder('big5').decode(sampleBuffer);
+        } catch (__) {}
+      }
+
+      const gbkScore = scoreDecodedChineseText(gbkSample) + (gbkFatalOk ? 20 : 0);
+      const big5Score = scoreDecodedChineseText(big5Sample) + (big5FatalOk ? 20 : 0);
+
+      if (gbkScore >= big5Score && gbkSample) {
+        try {
+          return new TextDecoder('gb18030').decode(buffer);
+        } catch (_) {}
+      }
+
+      if (big5Sample) {
+        try {
+          return new TextDecoder('big5').decode(buffer);
+        } catch (_) {}
+      }
+
+      return new TextDecoder('utf-8').decode(buffer);
+    }
+
+    /********************************************************************
+     * 10. 閱讀器引擎 (.TXT 與 .EPUB 渲染、章節跳轉、進度自動儲存)
+     ********************************************************************/
+    async function openBookInReader(bookId) {
+      const book = await storage.getBook(bookId);
+      if (!book) return;
+
+      state.currentBook = book;
+      document.getElementById('library-view').classList.add('hidden');
+      document.getElementById('reader-view').classList.remove('hidden');
+      document.getElementById('reader-book-title').textContent = book.title;
+
+      applyReaderSettingsToDOM();
+
+      if (book.format === 'epub') {
+        await renderEpubBook(book);
+      } else {
+        await renderTxtBook(book);
+      }
+    }
+
+    async function closeReaderToLibrary() {
+      await saveCurrentReadingProgressImmediate();
+
+      if (state.isFullscreen) {
+        await toggleFullscreenMode(false);
+      }
+
+      if (state.epubInstance && state.epubInstance.destroy) {
+        try {
+          state.epubInstance.destroy();
+        } catch (_) {}
+      }
+      state.epubInstance = null;
+      state.epubRendition = null;
+      state.currentBook = null;
+
+      closeAllDrawers();
+      document.getElementById('reader-view').classList.add('hidden');
+      document.getElementById('library-view').classList.remove('hidden');
+      await refreshLibrary();
+    }
+
+    /* ---------------- TXT 閱讀引擎 ---------------- */
+    function buildChapterSectionHtml(chapterIdx) {
+      const ch = state.chapters[chapterIdx];
+      if (!ch) return '';
+      const lang = state.readerSettings.lang || 'tc';
+      const convertedTitle = convertChineseText(ch.title, lang);
+      const pTags = ch.paragraphs.map((p) => `<p>${escapeHtml(convertChineseText(p, lang))}</p>`).join('\n');
+      return `<section class="chapter-section" data-chapter-section="${chapterIdx}">\n<h2 id="${escapeHtml(ch.anchorId)}" data-chapter-idx="${chapterIdx}" class="chapter-heading serif-title">${escapeHtml(convertedTitle)}</h2>\n${pTags}\n</section>`;
+    }
+
+    async function renderTxtBook(book) {
+      document.getElementById('epub-reader-wrapper').classList.add('hidden');
+      document.getElementById('txt-reader-article').classList.remove('hidden');
+
+      const parsed = parseTxtChaptersAndParagraphs(book.data || '', book.id);
+      const { chapters, blocks, totalParagraphs, isPaginated } = parsed;
+      const lang = state.readerSettings.lang || 'tc';
+
+      state.chapters = chapters;
+      state.isPaginatedTxt = isPaginated;
+      state.totalParagraphCount = Math.max(1, totalParagraphs);
+      state.cachedHeadings = [];
+
+      document.getElementById('reader-book-title').textContent = convertChineseText(book.title, lang);
+
+      // Render TOC Drawer
+      renderTocDrawerList(chapters, 'txt');
+
+      if (isPaginated) {
+        // 大型書籍：採滑動視窗連續章節流（往下捲動自動接續下一章，並回收遠離視窗的舊章節以維持極致流暢）
+        let initialChapterIdx = 0;
+        if (book.progress && typeof book.progress.chapterIndex === 'number') {
+          initialChapterIdx = Math.min(chapters.length - 1, Math.max(0, book.progress.chapterIndex));
+        } else if (book.progress && typeof book.progress.scrollRatio === 'number' && chapters.length > 0) {
+          initialChapterIdx = Math.min(chapters.length - 1, Math.floor(book.progress.scrollRatio * chapters.length));
+        }
+        const chapterRatio = (book.progress && typeof book.progress.chapterScrollRatio === 'number')
+          ? book.progress.chapterScrollRatio
+          : 0;
+        renderTxtChapterPage(initialChapterIdx, chapterRatio);
+      } else {
+        // 中小型書籍：一次渲染並快取章節標題節點，避免滾動時重複查詢 DOM
+        const contentEl = document.getElementById('txt-reader-content');
+        const htmlParts = blocks.map((block) => {
+          const converted = convertChineseText(block.text, lang);
+          if (block.type === 'heading') {
+            return `<h2 id="${escapeHtml(block.anchorId)}" data-chapter-idx="${block.chapterIndex}" class="chapter-heading serif-title">${escapeHtml(converted)}</h2>`;
+          }
+          return `<p data-chapter-idx="${block.chapterIndex}">${escapeHtml(converted)}</p>`;
+        });
+
+        contentEl.innerHTML = htmlParts.join('\n');
+        state.cachedHeadings = Array.from(contentEl.querySelectorAll('h2.chapter-heading'));
+
+        requestAnimationFrame(() => {
+          restoreTxtScrollPosition(book);
+          updateTxtProgressStatus();
+        });
+      }
+    }
+
+    function renderTxtChapterPage(chapterIdx, targetChapterRatio = 0) {
+      if (!state.chapters || state.chapters.length === 0) return;
+      const clampedIdx = Math.min(state.chapters.length - 1, Math.max(0, chapterIdx));
+      state.activeChapterIdx = clampedIdx;
+      state.activeChapterLocalRatio = Math.min(1, Math.max(0, targetChapterRatio || 0));
+      state.renderedStartChapter = clampedIdx;
+      state.renderedEndChapter = clampedIdx;
+
+      const contentEl = document.getElementById('txt-reader-content');
+      contentEl.innerHTML = buildChapterSectionHtml(clampedIdx);
+
+      requestAnimationFrame(() => {
+        setScrollerPositionByRatio(targetChapterRatio);
+        ensureAdjacentChaptersBuffered();
+        updateTxtProgressStatus();
+      });
+    }
+
+    let isMutatingChapterStream = false;
+
+    function ensureAdjacentChaptersBuffered() {
+      if (!state.isPaginatedTxt || isMutatingChapterStream || !state.chapters || state.chapters.length === 0) return;
+
+      const scroller = document.getElementById('reader-scroll-container');
+      const contentEl = document.getElementById('txt-reader-content');
+      const isVert = state.readerSettings.direction === 'vertical';
+
+      if (!isVert) {
+        const remainingBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+        // 當距離底部小於 900px 時，自動無縫載入下一章
+        if (remainingBottom < 900 && state.renderedEndChapter < state.chapters.length - 1) {
+          isMutatingChapterStream = true;
+          const nextIdx = state.renderedEndChapter + 1;
+          contentEl.insertAdjacentHTML('beforeend', buildChapterSectionHtml(nextIdx));
+          state.renderedEndChapter = nextIdx;
+
+          // 若同時掛載超過 6 個章節，回收最上方已遠離視窗的章節並補償 scrollTop，避免長期往下滑動累積過多 DOM
+          const sections = contentEl.querySelectorAll('section.chapter-section');
+          if (sections.length > 6) {
+            const firstSec = sections[0];
+            const firstRect = firstSec.getBoundingClientRect();
+            if (firstRect.bottom < -300) {
+              const removedHeight = firstSec.offsetHeight;
+              firstSec.remove();
+              state.renderedStartChapter += 1;
+              scroller.scrollTop = Math.max(0, scroller.scrollTop - removedHeight);
+            }
+          }
+          isMutatingChapterStream = false;
+        } else if (scroller.scrollTop < 100 && state.renderedStartChapter > 0) {
+          // 當往上捲動接近頂部時，自動無縫補回上一章並維持視窗位置不跳動
+          isMutatingChapterStream = true;
+          const prevIdx = state.renderedStartChapter - 1;
+          const prevScrollHeight = scroller.scrollHeight;
+          contentEl.insertAdjacentHTML('afterbegin', buildChapterSectionHtml(prevIdx));
+          state.renderedStartChapter = prevIdx;
+          const addedHeight = scroller.scrollHeight - prevScrollHeight;
+          scroller.scrollTop += addedHeight;
+
+          const sections = contentEl.querySelectorAll('section.chapter-section');
+          if (sections.length > 6) {
+            const lastSec = sections[sections.length - 1];
+            const lastRect = lastSec.getBoundingClientRect();
+            if (lastRect.top > window.innerHeight + 400) {
+              lastSec.remove();
+              state.renderedEndChapter -= 1;
+            }
+          }
+          isMutatingChapterStream = false;
+        }
+      } else {
+        // 直排模式 (vertical-rl)：向閱讀方向捲動接近尾端時自動附加下一章
+        const maxScroll = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+        const scrolledDist = getRawScrollerRatio() * maxScroll;
+        const remainingEnd = maxScroll - scrolledDist;
+
+        if (remainingEnd < 900 && state.renderedEndChapter < state.chapters.length - 1) {
+          isMutatingChapterStream = true;
+          const nextIdx = state.renderedEndChapter + 1;
+          contentEl.insertAdjacentHTML('beforeend', buildChapterSectionHtml(nextIdx));
+          state.renderedEndChapter = nextIdx;
+          isMutatingChapterStream = false;
+        }
+      }
+    }
+
+    function setScrollerPositionByRatio(ratio) {
+      const scroller = document.getElementById('reader-scroll-container');
+      const safeRatio = Math.min(1, Math.max(0, ratio || 0));
+
+      if (state.readerSettings.direction === 'vertical') {
+        const maxScroll = Math.max(1, scroller.scrollWidth - scroller.clientWidth);
+        const target = safeRatio * maxScroll;
+        scroller.scrollLeft = -target;
+        if (scroller.scrollLeft === 0 && target > 0) {
+          scroller.scrollLeft = maxScroll - target;
+        }
+      } else {
+        const maxScroll = Math.max(1, scroller.scrollHeight - scroller.clientHeight);
+        scroller.scrollTop = safeRatio * maxScroll;
+      }
+    }
+
+    function restoreTxtScrollPosition(book) {
+      if (state.isPaginatedTxt) {
+        const chapterRatio = (book.progress && typeof book.progress.chapterScrollRatio === 'number')
+          ? book.progress.chapterScrollRatio
+          : (book.progress && typeof book.progress.scrollRatio === 'number' ? book.progress.scrollRatio : 0);
+        setScrollerPositionByRatio(chapterRatio);
+        return;
+      }
+      const savedRatio = book.progress && typeof book.progress.scrollRatio === 'number'
+        ? book.progress.scrollRatio
+        : 0;
+      setScrollerPositionByRatio(savedRatio);
+    }
+
+    function getRawScrollerRatio() {
+      const scroller = document.getElementById('reader-scroll-container');
+      if (state.readerSettings.direction === 'vertical') {
+        const maxScroll = scroller.scrollWidth - scroller.clientWidth;
+        if (maxScroll <= 0) return 0;
+        const rawLeft = scroller.scrollLeft;
+        if (rawLeft < 0) {
+          return Math.min(1, Math.max(0, Math.abs(rawLeft) / maxScroll));
+        }
+        return Math.min(1, Math.max(0, (maxScroll - rawLeft) / maxScroll));
+      } else {
+        const maxScroll = scroller.scrollHeight - scroller.clientHeight;
+        if (maxScroll <= 0) return 0;
+        return Math.min(1, Math.max(0, scroller.scrollTop / maxScroll));
+      }
+    }
+
+    function syncActiveChapterFromViewport() {
+      if (!state.isPaginatedTxt || !state.chapters || state.chapters.length === 0) return;
+      const contentEl = document.getElementById('txt-reader-content');
+      const sections = contentEl.querySelectorAll('section.chapter-section');
+      if (sections.length === 0) return;
+
+      const isVert = state.readerSettings.direction === 'vertical';
+      let chosenSec = sections[0];
+
+      for (let i = 0; i < sections.length; i++) {
+        const sec = sections[i];
+        const rect = sec.getBoundingClientRect();
+        if (!isVert) {
+          if (rect.top <= 200) {
+            chosenSec = sec;
+          } else {
+            break;
+          }
+        } else {
+          if (rect.right >= window.innerWidth - 240) {
+            chosenSec = sec;
+          }
+        }
+      }
+
+      const idx = Number(chosenSec.getAttribute('data-chapter-section'));
+      if (!Number.isNaN(idx)) {
+        state.activeChapterIdx = idx;
+      }
+
+      const rect = chosenSec.getBoundingClientRect();
+      if (!isVert) {
+        const scrollable = Math.max(1, rect.height - 160);
+        const passed = Math.max(0, 140 - rect.top);
+        state.activeChapterLocalRatio = Math.min(1, Math.max(0, passed / scrollable));
+      } else {
+        const scrollable = Math.max(1, rect.width - 160);
+        const passed = Math.max(0, rect.right - (window.innerWidth - 140));
+        state.activeChapterLocalRatio = Math.min(1, Math.max(0, passed / scrollable));
+      }
+    }
+
+    function getTxtScrollRatio() {
+      if (!state.isPaginatedTxt || !state.chapters || state.chapters.length === 0) {
+        return getRawScrollerRatio();
+      }
+      syncActiveChapterFromViewport();
+      const ch = state.chapters[state.activeChapterIdx] || state.chapters[0];
+      const chLen = Math.max(1, ch.paragraphs ? ch.paragraphs.length : 1);
+      const globalOffset = (ch.startOffset || 0) + state.activeChapterLocalRatio * chLen;
+      return Math.min(1, Math.max(0, globalOffset / Math.max(1, state.totalParagraphCount)));
+    }
+
+    function detectCurrentVisibleTxtChapter() {
+      const lang = state.readerSettings.lang || 'tc';
+      if (!state.chapters || state.chapters.length === 0) return convertChineseText('全文閱讀', lang);
+      if (state.isPaginatedTxt) {
+        syncActiveChapterFromViewport();
+        const ch = state.chapters[state.activeChapterIdx] || state.chapters[0];
+        return convertChineseText(ch.title, lang);
+      }
+
+      const headings = state.cachedHeadings;
+      if (!headings || headings.length === 0) return convertChineseText(state.chapters[0].title, lang);
+
+      const isVertical = state.readerSettings.direction === 'vertical';
+      let currentTitle = state.chapters[0].title;
+
+      for (let i = 0; i < headings.length; i++) {
+        const h = headings[i];
+        const rect = h.getBoundingClientRect();
+        if (!isVertical) {
+          if (rect.top <= 160) {
+            currentTitle = h.textContent;
+          } else {
+            break;
+          }
+        } else {
+          if (rect.right >= window.innerWidth - 220) {
+            currentTitle = h.textContent;
+          }
+        }
+      }
+      return convertChineseText(currentTitle, lang);
+    }
+
+    function updateTxtProgressStatus() {
+      if (!state.currentBook || state.currentBook.format !== 'txt') return;
+      const lang = state.readerSettings.lang || 'tc';
+      const ratio = getTxtScrollRatio();
+      const pct = Math.round(ratio * 100);
+      const chapterTitle = detectCurrentVisibleTxtChapter();
+
+      document.getElementById('reader-progress-indicator').textContent = convertChineseText(`進度 ${pct}%`, lang);
+      document.getElementById('reader-current-chapter').textContent = chapterTitle;
+    }
+
+    /* ---------------- EPUB 閱讀引擎 ---------------- */
+    async function renderEpubBook(book) {
+      document.getElementById('txt-reader-article').classList.add('hidden');
+      document.getElementById('epub-reader-wrapper').classList.remove('hidden');
+
+      const mount = document.getElementById('epub-render-mount');
+      mount.innerHTML = '';
+
+      if (!window.ePub) {
+        mount.innerHTML = `<div class="p-8 rounded-xl border border-amber-500/30 text-center">無法載入 EPUB.js 引擎，請確認網路連線或改用 TXT 檔案。</div>`;
+        return;
+      }
+
+      try {
+        if (state.epubInstance && state.epubInstance.destroy) {
+          state.epubInstance.destroy();
+        }
+
+        const bufferCopy = book.data instanceof ArrayBuffer ? book.data.slice(0) : book.data;
+        const epubBook = window.ePub(bufferCopy);
+        state.epubInstance = epubBook;
+
+        const rendition = epubBook.renderTo('epub-render-mount', {
+          width: '100%',
+          height: '100%',
+          flow: 'scrolled-doc',
+          manager: 'continuous'
+        });
+        state.epubRendition = rendition;
+
+        applyEpubThemeStyles();
+
+        const startCfi = book.progress && book.progress.cfi ? book.progress.cfi : undefined;
+        await rendition.display(startCfi);
+
+        const nav = await epubBook.loaded.navigation;
+        const tocItems = (nav && nav.toc ? nav.toc : []).map((item, idx) => ({
+          index: idx,
+          title: item.label ? item.label.trim() : `第 ${idx + 1} 節`,
+          href: item.href
+        }));
+        state.chapters = tocItems;
+        renderTocDrawerList(tocItems, 'epub');
+
+        rendition.on('relocated', (location) => {
+          if (!location || !location.start) return;
+          const cfi = location.start.cfi;
+          const pct = typeof location.start.percentage === 'number'
+            ? Math.round(location.start.percentage * 100)
+            : 0;
+          const lang = state.readerSettings.lang || 'tc';
+          document.getElementById('reader-progress-indicator').textContent = convertChineseText(`進度 ${pct}%`, lang);
+
+          storage.updateBookProgress(book.id, {
+            cfi,
+            percentage: pct
+          });
+        });
+      } catch (err) {
+        mount.innerHTML = `<div class="p-8 rounded-xl border border-red-400/40 text-center">解析 EPUB 檔案時發生問題，請確認檔案格式正確。</div>`;
+      }
+    }
+
+    function applyEpubThemeStyles() {
+      const s = state.readerSettings;
+      const epubWrapper = document.getElementById('epub-reader-wrapper');
+      if (epubWrapper) {
+        epubWrapper.style.paddingLeft = `${s.margin || 36}px`;
+        epubWrapper.style.paddingRight = `${s.margin || 36}px`;
+      }
+      if (!state.epubRendition) return;
+      const fontStack = FONT_FAMILIES[s.fontKey] || FONT_FAMILIES.serif;
+      state.epubRendition.themes.default({
+        body: {
+          'background-color': `${s.bgColor} !important`,
+          'color': `${s.textColor} !important`,
+          'font-family': `${fontStack} !important`,
+          'font-size': `${s.fontSize}px !important`,
+          'line-height': '1.9 !important',
+          'padding': s.direction === 'vertical' ? `${s.margin || 36}px 16px !important` : `16px ${s.margin || 36}px !important`,
+          'writing-mode': s.direction === 'vertical' ? 'vertical-rl' : 'horizontal-tb'
+        },
+        p: {
+          'text-indent': '2em',
+          'line-height': '1.95'
+        }
+      });
+    }
+
+    /* ---------------- 章節目錄側邊欄 (TOC Drawer) ---------------- */
+    function renderTocDrawerList(chapters, mode) {
+      const lang = state.readerSettings.lang || 'tc';
+      const tocList = document.getElementById('toc-list');
+      const countCaption = document.getElementById('toc-count-caption');
+      countCaption.textContent = convertChineseText(`共 ${chapters.length} 個章節`, lang);
+
+      if (chapters.length === 0) {
+        tocList.innerHTML = `<div class="p-6 text-center text-xs text-stone-400">${convertChineseText('未偵測到章節標題', lang)}</div>`;
+        tocList.onclick = null;
+        return;
+      }
+
+      tocList.innerHTML = chapters.map((ch, i) => `
+        <button type="button" data-toc-idx="${i}" class="w-full text-left px-3.5 py-2.5 rounded-lg hover:bg-amber-900/10 text-stone-800 text-xs sm:text-sm transition flex items-center gap-2.5">
+          <span class="text-[11px] font-mono text-stone-400 shrink-0">${String(i + 1).padStart(2, '0')}</span>
+          <span class="truncate font-medium">${escapeHtml(convertChineseText(ch.title, lang))}</span>
+        </button>
+      `).join('');
+
+      // 使用單一事件委派處理數千章節點擊，避免大量綁定監聽器造成記憶體與開啟延遲
+      tocList.onclick = (e) => {
+        const btn = e.target.closest('[data-toc-idx]');
+        if (!btn) return;
+        const idx = Number(btn.getAttribute('data-toc-idx'));
+        const targetChapter = chapters[idx];
+        if (!targetChapter) return;
+        const curLang = state.readerSettings.lang || 'tc';
+
+        if (mode === 'txt') {
+          if (state.isPaginatedTxt) {
+            renderTxtChapterPage(idx, 0);
+            saveCurrentReadingProgressImmediate();
+          } else {
+            const headingEl = document.getElementById(targetChapter.anchorId);
+            if (headingEl) {
+              headingEl.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'start' });
+            }
+          }
+          document.getElementById('reader-current-chapter').textContent = convertChineseText(targetChapter.title, curLang);
+        } else if (mode === 'epub' && state.epubRendition && targetChapter.href) {
+          state.epubRendition.display(targetChapter.href);
+          document.getElementById('reader-current-chapter').textContent = convertChineseText(targetChapter.title, curLang);
+        }
+        closeAllDrawers();
+      };
+    }
+
+    /* ---------------- 進度自動儲存 (rAF 節流與 Debounced Scroll Save) ---------------- */
+    let scrollSaveTimer = null;
+    let scrollRafId = null;
+
+    function handleReaderScroll() {
+      if (!state.currentBook || state.currentBook.format !== 'txt') return;
+
+      if (!scrollRafId) {
+        scrollRafId = requestAnimationFrame(() => {
+          scrollRafId = null;
+          ensureAdjacentChaptersBuffered();
+          updateTxtProgressStatus();
+        });
+      }
+
+      if (scrollSaveTimer) clearTimeout(scrollSaveTimer);
+      scrollSaveTimer = setTimeout(() => {
+        saveCurrentReadingProgressImmediate();
+      }, 500);
+    }
+
+    async function saveCurrentReadingProgressImmediate() {
+      if (!state.currentBook) return;
+      if (state.currentBook.format === 'txt') {
+        const ratio = getTxtScrollRatio();
+        const localRatio = state.isPaginatedTxt ? state.activeChapterLocalRatio : getRawScrollerRatio();
+        const pct = Math.round(ratio * 100);
+        const chapterTitle = detectCurrentVisibleTxtChapter();
+        await storage.updateBookProgress(state.currentBook.id, {
+          scrollRatio: ratio,
+          chapterIndex: state.activeChapterIdx,
+          chapterScrollRatio: localRatio,
+          percentage: pct,
+          chapterTitle
+        });
+      }
+    }
+
+    /********************************************************************
+     * 11. 閱讀器排版設定與主題系統 (Reader Customization Controls)
+     ********************************************************************/
+    function renderPresetThemesInSettings() {
+      const container = document.getElementById('theme-presets-grid');
+      container.innerHTML = PRESET_THEMES.map((t) => {
+        const isActive = state.readerSettings.themeId === t.id;
+        return `
+          <button type="button" data-theme-id="${t.id}" class="w-full p-2.5 rounded-xl border ${isActive ? 'border-amber-800 ring-2 ring-amber-800/25' : 'border-[#DCD2BA]'} flex items-center justify-between transition" style="background-color: ${t.bg}; color: ${t.text};">
+            <div class="flex items-center gap-3">
+              <span class="w-6 h-6 rounded-full border border-black/15 shadow-inner flex items-center justify-center text-xs font-bold" style="background-color: ${t.bg}; color: ${t.text};">字</span>
+              <div class="text-left">
+                <div class="text-xs sm:text-sm font-bold">${escapeHtml(t.name)}</div>
+                <div class="text-[11px] opacity-75">${escapeHtml(t.subtitle)}</div>
+              </div>
+            </div>
+            ${isActive ? '<span class="text-xs font-semibold px-2 py-0.5 rounded bg-black/10">使用中</span>' : ''}
+          </button>
+        `;
+      }).join('');
+
+      container.querySelectorAll('[data-theme-id]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const themeId = btn.getAttribute('data-theme-id');
+          const found = PRESET_THEMES.find((t) => t.id === themeId);
+          if (!found) return;
+          state.readerSettings.themeId = found.id;
+          state.readerSettings.bgColor = found.bg;
+          state.readerSettings.textColor = found.text;
+          applyReaderSettingsToDOM();
+          persistReaderSettings();
+        });
+      });
+    }
+
+    function applyReaderSettingsToDOM() {
+      const s = state.readerSettings;
+      const lang = s.lang || 'tc';
+      const marginVal = typeof s.margin === 'number' ? s.margin : 36;
+      const root = document.documentElement;
+      const fontStack = FONT_FAMILIES[s.fontKey] || FONT_FAMILIES.serif;
+
+      root.style.setProperty('--reader-bg', s.bgColor);
+      root.style.setProperty('--reader-ink', s.textColor);
+      root.style.setProperty('--reader-font-size', `${s.fontSize}px`);
+      root.style.setProperty('--reader-margin', `${marginVal}px`);
+      root.style.setProperty('--reader-font-family', fontStack);
+
+      // Update font size UI
+      document.getElementById('font-size-slider').value = s.fontSize;
+      document.getElementById('font-size-value').textContent = `${s.fontSize}px`;
+
+      // Update margin UI
+      const marginSlider = document.getElementById('margin-slider');
+      const marginValueEl = document.getElementById('margin-value');
+      if (marginSlider) marginSlider.value = marginVal;
+      if (marginValueEl) marginValueEl.textContent = `${marginVal}px`;
+
+      // Update Traditional / Simplified Chinese UI buttons
+      const tcBtn = document.getElementById('lang-tc-btn');
+      const scBtn = document.getElementById('lang-sc-btn');
+      const quickLangLabel = document.getElementById('quick-lang-label');
+      const libLangBadge = document.getElementById('library-lang-badge');
+      const libLangLabel = document.getElementById('library-lang-label');
+
+      if (lang === 'sc') {
+        if (scBtn) scBtn.className = 'py-2.5 px-3 rounded-xl border border-amber-800 bg-amber-50 text-amber-950 ring-2 ring-amber-800/20 text-center font-medium transition flex items-center justify-center gap-1.5';
+        if (tcBtn) tcBtn.className = 'py-2.5 px-3 rounded-xl border border-[#DCD2BA] bg-white text-stone-700 hover:bg-stone-50 text-center font-medium transition flex items-center justify-center gap-1.5';
+        if (quickLangLabel) quickLangLabel.textContent = '简体';
+        if (libLangBadge) libLangBadge.textContent = '简';
+        if (libLangLabel) libLangLabel.textContent = '简体';
+      } else {
+        if (tcBtn) tcBtn.className = 'py-2.5 px-3 rounded-xl border border-amber-800 bg-amber-50 text-amber-950 ring-2 ring-amber-800/20 text-center font-medium transition flex items-center justify-center gap-1.5';
+        if (scBtn) scBtn.className = 'py-2.5 px-3 rounded-xl border border-[#DCD2BA] bg-white text-stone-700 hover:bg-stone-50 text-center font-medium transition flex items-center justify-center gap-1.5';
+        if (quickLangLabel) quickLangLabel.textContent = '繁體';
+        if (libLangBadge) libLangBadge.textContent = '繁';
+        if (libLangLabel) libLangLabel.textContent = '繁體';
+      }
+
+      // Update Fullscreen UI state
+      const readerView = document.getElementById('reader-view');
+      const floatingBar = document.getElementById('fullscreen-floating-bar');
+      const drawerFsLabel = document.getElementById('drawer-fullscreen-label');
+      const toolbarFsLabel = document.getElementById('fullscreen-toggle-label');
+
+      if (state.isFullscreen) {
+        readerView.classList.add('is-fullscreen');
+        if (floatingBar) floatingBar.classList.remove('hidden');
+        if (drawerFsLabel) drawerFsLabel.textContent = convertChineseText('退出全螢幕閱讀', lang);
+        if (toolbarFsLabel) toolbarFsLabel.textContent = convertChineseText('退出全螢幕', lang);
+      } else {
+        readerView.classList.remove('is-fullscreen');
+        if (floatingBar) floatingBar.classList.add('hidden');
+        if (drawerFsLabel) drawerFsLabel.textContent = convertChineseText('進入全螢幕閱讀', lang);
+        if (toolbarFsLabel) toolbarFsLabel.textContent = convertChineseText('全螢幕', lang);
+      }
+
+      // Update font family buttons
+      document.querySelectorAll('.font-option-btn').forEach((btn) => {
+        const key = btn.getAttribute('data-font');
+        if (key === s.fontKey) {
+          btn.className = 'font-option-btn py-2.5 px-2 rounded-xl border border-amber-800 bg-amber-50/80 text-amber-950 ring-2 ring-amber-800/20 text-center transition';
+        } else {
+          btn.className = 'font-option-btn py-2.5 px-2 rounded-xl border border-[#DCD2BA] bg-white hover:bg-stone-50 text-stone-800 text-center transition';
+        }
+      });
+
+      // Update direction mode classes & buttons
+      const scroller = document.getElementById('reader-scroll-container');
+      const horizBtn = document.getElementById('dir-horizontal-btn');
+      const vertBtn = document.getElementById('dir-vertical-btn');
+      const quickDirLabel = document.getElementById('quick-direction-label');
+
+      if (s.direction === 'vertical') {
+        scroller.classList.remove('mode-horizontal');
+        scroller.classList.add('mode-vertical');
+        vertBtn.className = 'py-2.5 px-3 rounded-xl border border-amber-800 bg-amber-50 text-amber-950 ring-2 ring-amber-800/20 text-center font-medium transition flex items-center justify-center gap-2';
+        horizBtn.className = 'py-2.5 px-3 rounded-xl border border-[#DCD2BA] bg-white text-stone-700 hover:bg-stone-50 text-center font-medium transition flex items-center justify-center gap-2';
+        quickDirLabel.textContent = convertChineseText('橫排', lang);
+      } else {
+        scroller.classList.remove('mode-vertical');
+        scroller.classList.add('mode-horizontal');
+        horizBtn.className = 'py-2.5 px-3 rounded-xl border border-amber-800 bg-amber-50 text-amber-950 ring-2 ring-amber-800/20 text-center font-medium transition flex items-center justify-center gap-2';
+        vertBtn.className = 'py-2.5 px-3 rounded-xl border border-[#DCD2BA] bg-white text-stone-700 hover:bg-stone-50 text-center font-medium transition flex items-center justify-center gap-2';
+        quickDirLabel.textContent = convertChineseText('直排', lang);
+      }
+
+      // Sync custom color inputs
+      document.getElementById('custom-text-color').value = s.textColor;
+      document.getElementById('custom-bg-color').value = s.bgColor;
+      document.getElementById('custom-text-hex').textContent = s.textColor.toUpperCase();
+      document.getElementById('custom-bg-hex').textContent = s.bgColor.toUpperCase();
+
+      renderPresetThemesInSettings();
+      applyEpubThemeStyles();
+
+      // Convert UI panels to match selected Traditional / Simplified mode
+      convertUiDomTree(document.getElementById('reader-toolbar'), lang);
+      convertUiDomTree(document.getElementById('fullscreen-floating-bar'), lang);
+      convertUiDomTree(document.getElementById('toc-drawer'), lang);
+      convertUiDomTree(document.getElementById('settings-drawer'), lang);
+      convertUiDomTree(document.getElementById('delete-modal'), lang);
+    }
+
+    async function persistReaderSettings() {
+      await storage.saveSetting('readerSettings', state.readerSettings);
+    }
+
+    function setLanguageMode(targetLang) {
+      const normalized = targetLang === 'sc' ? 'sc' : 'tc';
+      state.readerSettings.lang = normalized;
+      applyReaderSettingsToDOM();
+      persistReaderSettings();
+      renderLibraryView();
+
+      if (state.currentBook) {
+        document.getElementById('reader-book-title').textContent = convertChineseText(state.currentBook.title, normalized);
+        if (state.currentBook.format === 'txt') {
+          renderTocDrawerList(state.chapters, 'txt');
+          // 直接在現有 DOM 段落上原地轉換繁簡文字，完全不影響捲軸位置與無縫閱讀狀態
+          convertUiDomTree(document.getElementById('txt-reader-content'), normalized);
+          updateTxtProgressStatus();
+        } else if (state.currentBook.format === 'epub') {
+          renderTocDrawerList(state.chapters, 'epub');
+        }
+      }
+    }
+
+    function toggleLanguageMode() {
+      const nextLang = state.readerSettings.lang === 'sc' ? 'tc' : 'sc';
+      setLanguageMode(nextLang);
+    }
+
+    async function toggleFullscreenMode(forceState) {
+      const nextState = typeof forceState === 'boolean' ? forceState : !state.isFullscreen;
+      state.isFullscreen = nextState;
+
+      try {
+        if (nextState) {
+          if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+            await document.documentElement.requestFullscreen();
+          }
+        } else {
+          if (document.fullscreenElement && document.exitFullscreen) {
+            await document.exitFullscreen();
+          }
+        }
+      } catch (_) {
+        // 沙盒預覽環境若阻擋原生 Fullscreen API，仍透過 .is-fullscreen 提供完整 100vh 全螢幕沉浸閱讀
+      }
+
+      applyReaderSettingsToDOM();
+    }
+
+    function toggleTextDirection() {
+      const currentLocalRatio = state.currentBook && state.currentBook.format === 'txt' ? getRawScrollerRatio() : 0;
+      state.readerSettings.direction = state.readerSettings.direction === 'horizontal' ? 'vertical' : 'horizontal';
+      applyReaderSettingsToDOM();
+      persistReaderSettings();
+
+      if (state.currentBook && state.currentBook.format === 'txt') {
+        requestAnimationFrame(() => {
+          setScrollerPositionByRatio(currentLocalRatio);
+          updateTxtProgressStatus();
+        });
+      }
+    }
+
+    /********************************************************************
+     * 12. 抽屜開關控制 (Slide-over Drawers)
+     ********************************************************************/
+    function openTocDrawer() {
+      document.getElementById('drawer-backdrop').classList.remove('hidden');
+      document.getElementById('toc-drawer').classList.remove('-translate-x-full');
+      document.getElementById('settings-drawer').classList.add('translate-x-full');
+    }
+
+    function openSettingsDrawer() {
+      document.getElementById('drawer-backdrop').classList.remove('hidden');
+      document.getElementById('settings-drawer').classList.remove('translate-x-full');
+      document.getElementById('toc-drawer').classList.add('-translate-x-full');
+    }
+
+    function closeAllDrawers() {
+      document.getElementById('drawer-backdrop').classList.add('hidden');
+      document.getElementById('toc-drawer').classList.add('-translate-x-full');
+      document.getElementById('settings-drawer').classList.add('translate-x-full');
+    }
+
+    /********************************************************************
+     * 13. 事件綁定與啟動流程 (Event Listeners & Bootstrap)
+     ********************************************************************/
+    function bindGlobalEvents() {
+      // View Mode Toggle
+      document.getElementById('view-grid-btn').addEventListener('click', () => {
+        state.viewMode = 'grid';
+        storage.saveSetting('libraryViewMode', 'grid');
+        renderLibraryView();
+      });
+
+      document.getElementById('view-list-btn').addEventListener('click', () => {
+        state.viewMode = 'list';
+        storage.saveSetting('libraryViewMode', 'list');
+        renderLibraryView();
+      });
+
+      // Batch Management Mode Toggle
+      document.getElementById('batch-mode-btn').addEventListener('click', () => {
+        state.batchMode = !state.batchMode;
+        state.selectedBookIds.clear();
+        renderLibraryView();
+      });
+
+      document.getElementById('batch-cancel-btn').addEventListener('click', () => {
+        state.batchMode = false;
+        state.selectedBookIds.clear();
+        renderLibraryView();
+      });
+
+      document.getElementById('batch-select-all').addEventListener('change', (e) => {
+        if (e.target.checked) {
+          state.books.forEach((b) => state.selectedBookIds.add(b.id));
+        } else {
+          state.selectedBookIds.clear();
+        }
+        renderLibraryView();
+      });
+
+      document.getElementById('batch-delete-btn').addEventListener('click', () => {
+        openDeleteConfirmation(Array.from(state.selectedBookIds));
+      });
+
+      // File Input & Drag-and-Drop
+      const fileInput = document.getElementById('file-upload-input');
+      fileInput.addEventListener('change', async (e) => {
+        await handleFilesImport(e.target.files);
+        fileInput.value = '';
+      });
+
+      const dropZone = document.getElementById('drop-zone');
+      dropZone.addEventListener('click', () => fileInput.click());
+
+      dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('border-amber-800', 'bg-amber-50/70');
+      });
+
+      dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('border-amber-800', 'bg-amber-50/70');
+      });
+
+      dropZone.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('border-amber-800', 'bg-amber-50/70');
+        if (e.dataTransfer && e.dataTransfer.files) {
+          await handleFilesImport(e.dataTransfer.files);
+        }
+      });
+
+      // Restore Sample Book Button
+      document.getElementById('restore-sample-btn').addEventListener('click', async () => {
+        await ensureSampleBookLoaded(true);
+        await refreshLibrary();
+      });
+
+      // Alert Banner Close
+      document.getElementById('library-alert-close').addEventListener('click', () => {
+        document.getElementById('library-alert').classList.add('hidden');
+      });
+
+      // Delete Confirmation Modal
+      document.getElementById('delete-modal-cancel').addEventListener('click', closeDeleteConfirmation);
+      document.getElementById('delete-modal-confirm').addEventListener('click', confirmDeleteBooks);
+
+      // Reader Navigation & Drawers
+      document.getElementById('back-to-library-btn').addEventListener('click', closeReaderToLibrary);
+      document.getElementById('open-toc-btn').addEventListener('click', openTocDrawer);
+      document.getElementById('close-toc-btn').addEventListener('click', closeAllDrawers);
+      document.getElementById('open-settings-btn').addEventListener('click', openSettingsDrawer);
+      document.getElementById('close-settings-btn').addEventListener('click', closeAllDrawers);
+      document.getElementById('drawer-backdrop').addEventListener('click', closeAllDrawers);
+
+      // Quick Direction Toggle & Drawer Direction Buttons
+      document.getElementById('quick-direction-btn').addEventListener('click', toggleTextDirection);
+      document.getElementById('dir-horizontal-btn').addEventListener('click', () => {
+        if (state.readerSettings.direction !== 'horizontal') toggleTextDirection();
+      });
+      document.getElementById('dir-vertical-btn').addEventListener('click', () => {
+        if (state.readerSettings.direction !== 'vertical') toggleTextDirection();
+      });
+
+      // Font Size Controls (12px - 36px)
+      const fontSlider = document.getElementById('font-size-slider');
+      fontSlider.addEventListener('input', (e) => {
+        state.readerSettings.fontSize = Math.min(36, Math.max(12, Number(e.target.value)));
+        applyReaderSettingsToDOM();
+        persistReaderSettings();
+      });
+
+      document.getElementById('font-decrease-btn').addEventListener('click', () => {
+        state.readerSettings.fontSize = Math.max(12, state.readerSettings.fontSize - 1);
+        applyReaderSettingsToDOM();
+        persistReaderSettings();
+      });
+
+      document.getElementById('font-increase-btn').addEventListener('click', () => {
+        state.readerSettings.fontSize = Math.min(36, state.readerSettings.fontSize + 1);
+        applyReaderSettingsToDOM();
+        persistReaderSettings();
+      });
+
+      // Page Margin Controls (12px - 180px)
+      const marginSlider = document.getElementById('margin-slider');
+      if (marginSlider) {
+        marginSlider.addEventListener('input', (e) => {
+          state.readerSettings.margin = Math.min(180, Math.max(12, Number(e.target.value)));
+          applyReaderSettingsToDOM();
+          persistReaderSettings();
+        });
+      }
+
+      const marginDecBtn = document.getElementById('margin-decrease-btn');
+      if (marginDecBtn) {
+        marginDecBtn.addEventListener('click', () => {
+          const cur = typeof state.readerSettings.margin === 'number' ? state.readerSettings.margin : 36;
+          state.readerSettings.margin = Math.max(12, cur - 8);
+          applyReaderSettingsToDOM();
+          persistReaderSettings();
+        });
+      }
+
+      const marginIncBtn = document.getElementById('margin-increase-btn');
+      if (marginIncBtn) {
+        marginIncBtn.addEventListener('click', () => {
+          const cur = typeof state.readerSettings.margin === 'number' ? state.readerSettings.margin : 36;
+          state.readerSettings.margin = Math.min(180, cur + 8);
+          applyReaderSettingsToDOM();
+          persistReaderSettings();
+        });
+      }
+
+      // Traditional / Simplified Chinese Toggle Controls (繁 / 簡切換)
+      const libLangBtn = document.getElementById('library-lang-btn');
+      if (libLangBtn) libLangBtn.addEventListener('click', toggleLanguageMode);
+
+      const quickLangBtn = document.getElementById('quick-lang-btn');
+      if (quickLangBtn) quickLangBtn.addEventListener('click', toggleLanguageMode);
+
+      const langTcBtn = document.getElementById('lang-tc-btn');
+      if (langTcBtn) langTcBtn.addEventListener('click', () => setLanguageMode('tc'));
+
+      const langScBtn = document.getElementById('lang-sc-btn');
+      if (langScBtn) langScBtn.addEventListener('click', () => setLanguageMode('sc'));
+
+      // Fullscreen Mode Controls (全螢幕閱讀模式)
+      const fsToggleBtn = document.getElementById('fullscreen-toggle-btn');
+      if (fsToggleBtn) fsToggleBtn.addEventListener('click', () => toggleFullscreenMode());
+
+      const drawerFsBtn = document.getElementById('drawer-fullscreen-btn');
+      if (drawerFsBtn) drawerFsBtn.addEventListener('click', () => toggleFullscreenMode());
+
+      const exitFsBtn = document.getElementById('exit-fullscreen-btn');
+      if (exitFsBtn) exitFsBtn.addEventListener('click', () => toggleFullscreenMode(false));
+
+      const fsOpenTocBtn = document.getElementById('fs-open-toc-btn');
+      if (fsOpenTocBtn) fsOpenTocBtn.addEventListener('click', openTocDrawer);
+
+      const fsOpenSettingsBtn = document.getElementById('fs-open-settings-btn');
+      if (fsOpenSettingsBtn) fsOpenSettingsBtn.addEventListener('click', openSettingsDrawer);
+
+      document.addEventListener('fullscreenchange', () => {
+        if (!document.fullscreenElement && state.isFullscreen) {
+          state.isFullscreen = false;
+          applyReaderSettingsToDOM();
+        }
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          const tocOpen = !document.getElementById('toc-drawer').classList.contains('-translate-x-full');
+          const settingsOpen = !document.getElementById('settings-drawer').classList.contains('translate-x-full');
+          if (tocOpen || settingsOpen) {
+            closeAllDrawers();
+          } else if (state.isFullscreen) {
+            toggleFullscreenMode(false);
+          }
+        }
+      });
+
+      // Font Family Buttons
+      document.querySelectorAll('.font-option-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          state.readerSettings.fontKey = btn.getAttribute('data-font');
+          applyReaderSettingsToDOM();
+          persistReaderSettings();
+        });
+      });
+
+      // Custom Color Pickers (HEX)
+      document.getElementById('custom-text-color').addEventListener('input', (e) => {
+        state.readerSettings.themeId = 'custom';
+        state.readerSettings.textColor = e.target.value;
+        applyReaderSettingsToDOM();
+        persistReaderSettings();
+      });
+
+      document.getElementById('custom-bg-color').addEventListener('input', (e) => {
+        state.readerSettings.themeId = 'custom';
+        state.readerSettings.bgColor = e.target.value;
+        applyReaderSettingsToDOM();
+        persistReaderSettings();
+      });
+
+      // Scroll Container Progress Listener + Vertical Wheel Assistance
+      const scroller = document.getElementById('reader-scroll-container');
+      scroller.addEventListener('scroll', handleReaderScroll, { passive: true });
+      scroller.addEventListener('wheel', (e) => {
+        // 垂直排版 (vertical-rl) 時，將滑鼠滾輪上下滾動轉換為水平橫移，方便桌面使用者閱讀
+        if (state.readerSettings.direction === 'vertical' && Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+          scroller.scrollLeft -= e.deltaY;
+          e.preventDefault();
+        }
+      }, { passive: false });
+
+      // TXT 分頁章節切換按鈕事件委派 (上一章 / 下一章)
+      document.getElementById('txt-reader-content').addEventListener('click', (e) => {
+        const navBtn = e.target.closest('[data-chapter-nav]');
+        if (!navBtn || !state.isPaginatedTxt) return;
+        const dir = navBtn.getAttribute('data-chapter-nav');
+        if (dir === 'prev' && state.activeChapterIdx > 0) {
+          renderTxtChapterPage(state.activeChapterIdx - 1, 0);
+          saveCurrentReadingProgressImmediate();
+        } else if (dir === 'next' && state.activeChapterIdx < state.chapters.length - 1) {
+          renderTxtChapterPage(state.activeChapterIdx + 1, 0);
+          saveCurrentReadingProgressImmediate();
+        }
+      });
+
+      // EPUB Prev/Next buttons
+      document.getElementById('epub-prev-btn').addEventListener('click', () => {
+        if (state.epubRendition) state.epubRendition.prev();
+      });
+      document.getElementById('epub-next-btn').addEventListener('click', () => {
+        if (state.epubRendition) state.epubRendition.next();
+      });
+    }
+
+    async function bootstrapApp() {
+      await storage.init();
+
+      const savedSettings = await storage.getSetting('readerSettings', null);
+      if (savedSettings && typeof savedSettings === 'object') {
+        state.readerSettings = {
+          ...state.readerSettings,
+          ...savedSettings
+        };
+      }
+
+      const savedViewMode = await storage.getSetting('libraryViewMode', 'grid');
+      if (savedViewMode === 'grid' || savedViewMode === 'list') {
+        state.viewMode = savedViewMode;
+      }
+
+      await ensureSampleBookLoaded(false);
+      bindGlobalEvents();
+      applyReaderSettingsToDOM();
+      await refreshLibrary();
+    }
+
+    document.addEventListener('DOMContentLoaded', bootstrapApp);
+  </script>
+</body>
+</html>
